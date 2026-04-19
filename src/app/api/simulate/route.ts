@@ -26,7 +26,11 @@ export async function GET(req: NextRequest) {
         ])
 
         if (!isLeagueActive(teams)) {
-          results.push({ league: league.slug, teams: 0, status: 'inactive' })
+          results.push({
+            league: league.slug,
+            teams: teams.length,
+            status: `inactive (fetched ${teams.length} teams, none with games played)`,
+          })
           return
         }
 
