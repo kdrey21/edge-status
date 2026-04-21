@@ -42,6 +42,7 @@ export interface LeagueConfig {
   slug: string
   sport: string
   espnPath: string
+  coreLeague?: string   // overrides the league segment in the core API URL
   totalGames: number
   playoffTeamsPerConference: number
 }
@@ -84,6 +85,7 @@ export const LEAGUES: LeagueConfig[] = [
     slug: 'mls',
     sport: 'soccer',
     espnPath: 'soccer/usa.1',
+    coreLeague: 'mls',
     totalGames: 34,
     playoffTeamsPerConference: 9,
   },

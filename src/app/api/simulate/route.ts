@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     LEAGUES.map(async (league) => {
       try {
         const [teams, espnGames] = await Promise.all([
-          fetchStandings(league.espnPath, league.totalGames),
+          fetchStandings(league.espnPath, league.totalGames, league.coreLeague),
           fetchUpcomingGames(league.espnPath),
         ])
 

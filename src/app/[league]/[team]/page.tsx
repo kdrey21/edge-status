@@ -52,7 +52,7 @@ export default async function TeamPage({ params }: Props) {
   try {
     const [espnGames, standings] = await Promise.all([
       fetchUpcomingGames(config.espnPath),
-      fetchStandings(config.espnPath, config.totalGames),
+      fetchStandings(config.espnPath, config.totalGames, config.coreLeague),
     ])
 
     const thisTeam = standings.find(t => t.abbreviation.toUpperCase() === teamAbbr)

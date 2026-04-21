@@ -170,8 +170,13 @@ async function fetchGroupStandings(
   }
 }
 
-export async function fetchStandings(espnPath: string, totalGames: number): Promise<LeagueTeam[]> {
-  const [sport, league] = espnPath.split('/')
+export async function fetchStandings(
+  espnPath: string,
+  totalGames: number,
+  coreLeague?: string,
+): Promise<LeagueTeam[]> {
+  const [sport, leagueFromPath] = espnPath.split('/')
+  const league = coreLeague ?? leagueFromPath
   const season = seasonYear(sport)
 
   const [teamMap, groupIds] = await Promise.all([
