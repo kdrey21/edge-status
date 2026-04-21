@@ -1,6 +1,7 @@
 import type { LeagueTeam, Game } from '@/types'
 
-const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports'
+const ESPN_SITE = 'https://site.api.espn.com/apis/site/v2/sports'
+const ESPN_CORE = 'https://sports.core.api.espn.com/v2/sports'
 const FETCH_TIMEOUT_MS = 8000
 
 async function espnFetch(url: string): Promise<unknown> {
@@ -10,124 +11,195 @@ async function espnFetch(url: string): Promise<unknown> {
     const res = await fetch(url, {
       signal: controller.signal,
       next: { revalidate: 0 },
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; EdgeStatus/1.0)',
-        'Accept': 'application/json',
-      },
+      headers: { Accept: 'application/json' },
     })
-    if (!res.ok) throw new Error(`ESPN returned ${res.status} for ${url}`)
+    if (!res.ok) throw new Error(`ESPN ${res.status}: ${url}`)
     return res.json()
   } finally {
     clearTimeout(timer)
   }
 }
 
-function statValue(
-  stats: Array<{ name: string; value: number; displayValue?: string }>,
-  name: string,
-): number {
-  return stats.find(s => s.name === name)?.value ?? 0
+// Pull the numeric ID out of a $ref URL, e.g. ".../groups/3?..." → "3"
+function refId(ref: string, segment: string): string | null {
+  const m = ref.match(new RegExp(`/${segment}/(\\w[\\w.]*?)(?:[/?]|$)`))
+  return m ? m[1] : null
 }
 
-// Current season year for a given sport
-// NHL/NBA span two calendar years — use the start year (e.g. 2024 for 2024-25)
-function currentSeasonYear(sport: string): number {
-  const now = new Date()
-  const month = now.getMonth() + 1 // 1-12
-  const year = now.getFullYear()
-  // For winter sports (hockey, basketball), season starts in Oct — use prior year if Jan-Sep
+// "10-8" or "94-68" → { wins, losses }
+function parseSummary(summary: string): { wins: number; losses: number } {
+  const parts = summary.split('-').map(n => parseInt(n, 10))
+  return { wins: parts[0] ?? 0, losses: parts[1] ?? 0 }
+}
+
+// Current season year — winter sports (hockey/basketball) started previous Oct
+function seasonYear(sport: string): number {
+  const month = new Date().getMonth() + 1 // 1-12
+  const year = new Date().getFullYear()
   if (sport === 'hockey' || sport === 'basketball') {
     return month >= 10 ? year : year - 1
   }
   return year
 }
 
-// Extract teams from a parsed ESPN standings response
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractTeams(data: any, totalGames: number): LeagueTeam[] {
-  const teams: LeagueTeam[] = []
+// Best-guess conference from a division/group name
+function inferConference(groupName: string, sport: string): string {
+  const g = groupName.toLowerCase()
+  if (sport === 'baseball') {
+    if (g.includes('al ') || g.startsWith('al') || g.includes('american')) return 'AL'
+    if (g.includes('nl ') || g.startsWith('nl') || g.includes('national')) return 'NL'
+  }
+  if (g.includes('afc') || g.startsWith('afc')) return 'AFC'
+  if (g.includes('nfc') || g.startsWith('nfc')) return 'NFC'
+  if (g.includes('east') || g.includes('atlantic') || g.includes('metropolitan')) return 'Eastern Conference'
+  if (g.includes('west') || g.includes('pacific') || g.includes('northwest') || g.includes('southwest')) return 'Western Conference'
+  if (g.includes('central') || g.includes('south')) return 'Western Conference'
+  return groupName
+}
 
-  // ESPN returns either data.children (conferences) or data.groups
-  const topGroups: unknown[] = data.children ?? data.groups ?? []
-
-  if (topGroups.length === 0) return teams
-
-  for (const group of topGroups) {
+// Build teamId → metadata map from the site API teams endpoint
+async function buildTeamMap(
+  espnPath: string,
+): Promise<Map<string, { name: string; abbreviation: string; displayName: string }>> {
+  const map = new Map<string, { name: string; abbreviation: string; displayName: string }>()
+  try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const g = group as any
-    const confName: string = g.name ?? 'Unknown Conference'
-
-    // Some responses have divisions nested under conferences (g.children)
-    // Others have teams directly under the conference standings
-    const divisions: unknown[] = g.children && g.children.length > 0 ? g.children : [g]
-
-    for (const div of divisions) {
+    const data = (await espnFetch(`${ESPN_SITE}/${espnPath}/teams?limit=100`)) as any
+    const teams: unknown[] = data.sports?.[0]?.leagues?.[0]?.teams ?? []
+    for (const t of teams) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d = div as any
-      const divName: string = d.name ?? confName
-      const entries: unknown[] = d.standings?.entries ?? []
-
-      for (const entry of entries) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const e = entry as any
-        if (!e.team) continue
-        const stats = e.stats ?? []
-        const wins = statValue(stats, 'wins')
-        const losses = statValue(stats, 'losses')
-        const otl = statValue(stats, 'overtimeLosses') + statValue(stats, 'ties')
-        const gamesPlayed = wins + losses + otl
-        const gamesRemaining = Math.max(0, totalGames - gamesPlayed)
-        const winPct = gamesPlayed > 0 ? wins / gamesPlayed : 0
-        const elo = 1500 + (winPct - 0.5) * 400
-
-        teams.push({
-          id: String(e.team.id),
-          name: e.team.name ?? e.team.displayName,
-          abbreviation: e.team.abbreviation ?? e.team.name,
-          displayName: e.team.displayName ?? e.team.name,
-          wins,
-          losses,
-          ties: otl,
-          winPct,
-          gamesBack: statValue(stats, 'gamesBehind'),
-          division: divName,
-          conference: confName,
-          elo,
-          gamesRemaining,
+      const team = (t as any).team
+      if (team?.id) {
+        map.set(String(team.id), {
+          name: team.name ?? team.displayName,
+          abbreviation: team.abbreviation ?? team.name,
+          displayName: team.displayName ?? team.name,
         })
       }
     }
+  } catch {
+    // Site API unavailable — use fallback names from team IDs
   }
-
-  return teams
+  return map
 }
 
-export async function fetchStandings(
-  espnPath: string,
+// Get all division/conference group IDs for a league+season
+async function fetchGroupIds(sport: string, league: string, season: number): Promise<string[]> {
+  try {
+    const url = `${ESPN_CORE}/${sport}/leagues/${league}/seasons/${season}/types/2/groups?limit=100`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = (await espnFetch(url)) as any
+    const items: unknown[] = data.items ?? []
+    return items
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map(item => refId((item as any).$ref ?? '', 'groups'))
+      .filter((id): id is string => id !== null)
+  } catch {
+    return []
+  }
+}
+
+// Get one group's name
+async function fetchGroupName(
+  sport: string,
+  league: string,
+  season: number,
+  groupId: string,
+): Promise<string> {
+  try {
+    const url = `${ESPN_CORE}/${sport}/leagues/${league}/seasons/${season}/types/2/groups/${groupId}`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = (await espnFetch(url)) as any
+    return data.abbreviation ?? data.name ?? `Group ${groupId}`
+  } catch {
+    return `Group ${groupId}`
+  }
+}
+
+// Get standings for one group, returning LeagueTeam entries
+async function fetchGroupStandings(
+  sport: string,
+  league: string,
+  season: number,
+  groupId: string,
+  groupName: string,
+  teamMap: Map<string, { name: string; abbreviation: string; displayName: string }>,
   totalGames: number,
 ): Promise<LeagueTeam[]> {
-  const sport = espnPath.split('/')[0]
-  const seasonYear = currentSeasonYear(sport)
+  try {
+    const url = `${ESPN_CORE}/${sport}/leagues/${league}/seasons/${season}/types/2/groups/${groupId}/standings/0`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = (await espnFetch(url)) as any
+    const teams: LeagueTeam[] = []
 
-  // Try with explicit season year first (more reliable), then fall back to no param
-  const urls = [
-    `${ESPN_BASE}/${espnPath}/standings?season=${seasonYear}&seasontype=2`,
-    `${ESPN_BASE}/${espnPath}/standings?season=${seasonYear}`,
-    `${ESPN_BASE}/${espnPath}/standings`,
-  ]
+    for (const standing of data.standings ?? []) {
+      const teamId = refId(standing.team?.$ref ?? '', 'teams')
+      if (!teamId) continue
 
-  for (const url of urls) {
-    try {
+      const meta = teamMap.get(teamId)
+      const record = standing.records?.[0]
+      const { wins, losses } = record?.summary ? parseSummary(record.summary) : { wins: 0, losses: 0 }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const data = (await espnFetch(url)) as any
-      const teams = extractTeams(data, totalGames)
-      if (teams.length > 0) return teams
-    } catch {
-      // Try next URL
-    }
-  }
+      const statsArr: any[] = record?.stats ?? []
+      const otl = statsArr.find(s => s.name === 'OTLosses')?.value ?? 0
 
-  return []
+      const gamesPlayed = wins + losses + Math.round(otl)
+      const gamesRemaining = Math.max(0, totalGames - gamesPlayed)
+      const winPct = gamesPlayed > 0 ? wins / gamesPlayed : 0
+      const elo = 1500 + (winPct - 0.5) * 400
+
+      teams.push({
+        id: teamId,
+        name: meta?.name ?? `Team ${teamId}`,
+        abbreviation: meta?.abbreviation ?? `T${teamId}`,
+        displayName: meta?.displayName ?? `Team ${teamId}`,
+        wins,
+        losses,
+        ties: Math.round(otl),
+        winPct,
+        gamesBack: 0,
+        division: groupName,
+        conference: inferConference(groupName, sport),
+        elo,
+        gamesRemaining,
+      })
+    }
+    return teams
+  } catch {
+    return []
+  }
+}
+
+export async function fetchStandings(espnPath: string, totalGames: number): Promise<LeagueTeam[]> {
+  const [sport, league] = espnPath.split('/')
+  const season = seasonYear(sport)
+
+  const [teamMap, groupIds] = await Promise.all([
+    buildTeamMap(espnPath),
+    fetchGroupIds(sport, league, season),
+  ])
+
+  if (groupIds.length === 0) return []
+
+  const allTeams: LeagueTeam[] = []
+
+  await Promise.all(
+    groupIds.map(async groupId => {
+      const groupName = await fetchGroupName(sport, league, season, groupId)
+      const teams = await fetchGroupStandings(
+        sport,
+        league,
+        season,
+        groupId,
+        groupName,
+        teamMap,
+        totalGames,
+      )
+      allTeams.push(...teams)
+    }),
+  )
+
+  return allTeams
 }
 
 export async function fetchUpcomingGames(espnPath: string): Promise<Game[]> {
@@ -139,17 +211,16 @@ export async function fetchUpcomingGames(espnPath: string): Promise<Game[]> {
     const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = (await espnFetch(
-      `${ESPN_BASE}/${espnPath}/scoreboard?dates=${fmt(today)}-${fmt(end)}&limit=500`,
+      `${ESPN_SITE}/${espnPath}/scoreboard?dates=${fmt(today)}-${fmt(end)}&limit=500`,
     )) as any
 
     for (const event of data.events ?? []) {
       const comp = event.competitions?.[0]
       if (!comp) continue
-      const competitors: unknown[] = comp.competitors ?? []
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const home = (competitors as any[]).find((c: any) => c.homeAway === 'home')
+      const home = (comp.competitors as any[])?.find((c: any) => c.homeAway === 'home')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const away = (competitors as any[]).find((c: any) => c.homeAway === 'away')
+      const away = (comp.competitors as any[])?.find((c: any) => c.homeAway === 'away')
       if (!home || !away) continue
       const completed = Boolean(event.status?.type?.completed)
       games.push({
@@ -162,13 +233,12 @@ export async function fetchUpcomingGames(espnPath: string): Promise<Game[]> {
       })
     }
   } catch {
-    // Fail gracefully — caller handles empty array
+    // Fail gracefully
   }
   return games
 }
 
 export function isLeagueActive(teams: LeagueTeam[]): boolean {
   if (teams.length < 4) return false
-  // Active if any team has played games
   return teams.some(t => t.wins + t.losses + t.ties > 0)
 }
