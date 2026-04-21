@@ -2,6 +2,9 @@ export interface SimResult {
   id: string
   team: string
   league: string
+  wins: number
+  losses: number
+  games_back: number
   playoff_pct: number
   div_title_pct: number
   conf_title_pct: number
@@ -9,6 +12,9 @@ export interface SimResult {
   seed_distribution: Record<string, number>
   magic_number: number | null
   elim_number: number | null
+  // betting edge fields (v2)
+  implied_playoff_pct: number | null
+  edge_pct: number | null
   updated_at: string
 }
 

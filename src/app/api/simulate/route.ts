@@ -41,19 +41,30 @@ export async function GET(req: NextRequest) {
           league.playoffTeamsPerConference,
         )
 
+        // Build a lookup map for current standings (wins/losses/GB)
+        const standingsMap = new Map(teams.map(t => [t.abbreviation, t]))
+
         // Upsert results — one row per team per league
-        const rows = simResults.map((r) => ({
-          team: r.team,
-          league: r.league,
-          playoff_pct: r.playoff_pct,
-          div_title_pct: r.div_title_pct,
-          conf_title_pct: r.conf_title_pct,
-          championship_pct: r.championship_pct,
-          seed_distribution: r.seed_distribution,
-          magic_number: r.magic_number,
-          elim_number: r.elim_number,
-          updated_at: new Date().toISOString(),
-        }))
+        const rows = simResults.map((r) => {
+          const standing = standingsMap.get(r.team)
+          return {
+            team: r.team,
+            league: r.league,
+            wins: standing?.wins ?? 0,
+            losses: standing?.losses ?? 0,
+            games_back: standing?.gamesBack ?? 0,
+            playoff_pct: r.playoff_pct,
+            div_title_pct: r.div_title_pct,
+            conf_title_pct: r.conf_title_pct,
+            championship_pct: r.championship_pct,
+            seed_distribution: r.seed_distribution,
+            magic_number: r.magic_number,
+            elim_number: r.elim_number,
+            implied_playoff_pct: null,
+            edge_pct: null,
+            updated_at: new Date().toISOString(),
+          }
+        })
 
         const { error } = await db
           .from('sim_results')
