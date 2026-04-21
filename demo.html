@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EdgeStatus — Playoff Probabilities</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0e1117;
+      --surface: #151821;
+      --surface2: #1a1d27;
+      --border: #2a2d3a;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --green: #4ade80;
+      --yellow: #facc15;
+      --red: #f87171;
+      --blue: #60a5fa;
+      --blue-dim: rgba(96,165,250,0.15);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ── Layout ── */
+    .header {
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .header-logo { font-weight: 900; font-size: 1.1rem; letter-spacing: -0.5px; }
+    .header-logo span { color: var(--blue); }
+
+    .container { max-width: 1100px; margin: 0 auto; padding: 2.5rem 1.5rem; }
+
+    /* ── Page nav ── */
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── Hero ── */
+    .hero h1 {
+      font-size: 2.5rem;
+      font-weight: 900;
+      letter-spacing: -1px;
+      margin-bottom: 0.5rem;
+    }
+    .hero p { color: var(--muted); font-size: 1.1rem; margin-bottom: 2.5rem; }
+
+    /* ── League cards ── */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 1rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .card:hover { border-color: rgba(96,165,250,0.5); background: var(--surface2); }
+    .card.off { opacity: 0.5; cursor: default; pointer-events: none; }
+    .card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
+    .card-icon { font-size: 2.2rem; line-height: 1; }
+    .badge {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 3px 8px;
+      border-radius: 999px;
+    }
+    .badge.on { background: rgba(74,222,128,0.2); color: var(--green); }
+    .badge.off { background: rgba(156,163,175,0.2); color: #6b7280; }
+    .card h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .card-date { font-size: 0.75rem; color: var(--muted); }
+
+    /* ── Back button ── */
+    .back {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      cursor: pointer;
+      margin-bottom: 2rem;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .back:hover { color: var(--text); }
+
+    /* ── League page heading ── */
+    .league-header { margin-bottom: 1.5rem; }
+    .league-header h1 { font-size: 2rem; font-weight: 900; letter-spacing: -0.5px; }
+    .league-header p { color: var(--muted); margin-top: 0.25rem; }
+
+    /* ── Standings table ── */
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 0.75rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    thead th {
+      background: var(--surface);
+      padding: 0.75rem 1rem;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+    }
+    thead th.sortable { cursor: pointer; user-select: none; }
+    thead th.sortable:hover { color: var(--text); }
+    thead th.active { color: var(--blue); }
+    thead th:not(:first-child) { text-align: right; }
+    tbody tr { border-top: 1px solid var(--border); transition: background 0.1s; }
+    tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+    tbody tr:hover { background: rgba(255,255,255,0.05); }
+    td { padding: 0.75rem 1rem; }
+    td:not(:first-child) { text-align: right; }
+    .team-link { font-weight: 700; cursor: pointer; color: var(--text); }
+    .team-link:hover { color: var(--blue); }
+    .pct-green { color: var(--green); font-weight: 700; }
+    .pct-yellow { color: var(--yellow); font-weight: 700; }
+    .pct-red { color: var(--red); font-weight: 700; }
+    .muted { color: var(--muted); }
+
+    /* ── Team page ── */
+    .team-header { margin-bottom: 2rem; }
+    .team-header h1 { font-size: 2rem; font-weight: 900; }
+    .team-header p { color: var(--muted); margin-top: 0.25rem; }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+    }
+    .stat-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 0.4rem; }
+    .stat-value { font-size: 1.6rem; font-weight: 900; }
+
+    .section-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; }
+
+    .chart-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    /* ── Canvas bar chart ── */
+    canvas { display: block; }
+
+    /* ── Schedule table ── */
+    .schedule-wrap { border: 1px solid var(--border); border-radius: 0.75rem; overflow: hidden; }
+    .schedule-wrap table { font-size: 0.85rem; }
+    .result-w { color: var(--green); font-weight: 700; }
+    .result-l { color: var(--red); font-weight: 700; }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-logo">Edge<span>Status</span></div>
+</header>
+
+<!-- HOME PAGE -->
+<div id="page-home" class="page active">
+  <div class="container">
+    <div class="hero">
+      <h1>Playoff Probabilities</h1>
+      <p>Monte Carlo simulation across 50,000 season scenarios.</p>
+    </div>
+    <div class="cards">
+      <div class="card" onclick="showLeague('nba')">
+        <div class="card-top"><span class="card-icon">🏀</span><span class="badge on">IN SEASON</span></div>
+        <h2>NBA</h2><p class="card-date">Updated Apr 20, 9:00 AM</p>
+      </div>
+      <div class="card" onclick="showLeague('nhl')">
+        <div class="card-top"><span class="card-icon">🏒</span><span class="badge on">IN SEASON</span></div>
+        <h2>NHL</h2><p class="card-date">Updated Apr 20, 9:00 AM</p>
+      </div>
+      <div class="card off">
+        <div class="card-top"><span class="card-icon">⚾</span><span class="badge off">OFF SEASON</span></div>
+        <h2>MLB</h2>
+      </div>
+      <div class="card off">
+        <div class="card-top"><span class="card-icon">🏈</span><span class="badge off">OFF SEASON</span></div>
+        <h2>NFL</h2>
+      </div>
+      <div class="card" onclick="showLeague('mls')">
+        <div class="card-top"><span class="card-icon">⚽</span><span class="badge on">IN SEASON</span></div>
+        <h2>MLS</h2><p class="card-date">Updated Apr 20, 9:00 AM</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- LEAGUE PAGE (NBA) -->
+<div id="page-league" class="page">
+  <div class="container">
+    <button class="back" onclick="showHome()">← All Leagues</button>
+    <div class="league-header">
+      <h1 id="league-title">NBA Playoff Probabilities</h1>
+      <p id="league-subtitle">30 teams · Updated Apr 20, 9:00 AM</p>
+    </div>
+
+    <div class="table-wrap">
+      <table id="standings-table">
+        <thead>
+          <tr>
+            <th>Team</th>
+            <th>W</th><th>L</th><th>GB</th>
+            <th class="sortable active" onclick="sortBy('playoff_pct', this)">Playoff % ↓</th>
+            <th class="sortable" onclick="sortBy('div_title_pct', this)">Div Title %</th>
+            <th class="sortable" onclick="sortBy('championship_pct', this)">Champ %</th>
+          </tr>
+        </thead>
+        <tbody id="standings-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- TEAM PAGE -->
+<div id="page-team" class="page">
+  <div class="container">
+    <button class="back" onclick="showLeagueFromTeam()">← Back to League</button>
+    <div class="team-header">
+      <h1 id="team-title"></h1>
+      <p id="team-subtitle" style="color:var(--muted);margin-top:0.25rem;"></p>
+    </div>
+
+    <div class="stats-grid" id="team-stats"></div>
+
+    <div class="chart-wrap">
+      <div class="section-title">Seed Distribution</div>
+      <canvas id="seed-chart" height="220"></canvas>
+    </div>
+
+    <div class="section-title">Remaining Schedule</div>
+    <div class="schedule-wrap">
+      <table style="width:100%">
+        <thead>
+          <tr>
+            <th style="padding:0.65rem 1rem;text-align:left;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);background:var(--surface)">Date</th>
+            <th style="padding:0.65rem 1rem;text-align:left;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);background:var(--surface)">Opponent</th>
+            <th style="padding:0.65rem 1rem;text-align:center;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);background:var(--surface)">H/A</th>
+          </tr>
+        </thead>
+        <tbody id="schedule-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Mock data ──────────────────────────────────────────────────────────────
+
+const LEAGUES_DATA = {
+  nba: {
+    name: 'NBA',
+    teams: [
+      { team:'BOS', w:61, l:21, gb:0,   playoff_pct:99.9, div_title_pct:82.3, championship_pct:22.4, conf_title_pct:44.1,
+        seed_distribution:{'1':52,'2':28,'3':12,'4':5,'5':2,'6':1} },
+      { team:'OKC', w:57, l:25, gb:4,   playoff_pct:99.8, div_title_pct:78.1, championship_pct:19.1, conf_title_pct:38.7,
+        seed_distribution:{'1':31,'2':35,'3':18,'4':10,'5':4,'6':2} },
+      { team:'MIL', w:49, l:33, gb:12,  playoff_pct:98.2, div_title_pct:61.4, championship_pct:9.8,  conf_title_pct:22.5,
+        seed_distribution:{'1':8,'2':18,'3':28,'4':25,'5':14,'6':7} },
+      { team:'NYK', w:47, l:35, gb:14,  playoff_pct:97.5, div_title_pct:38.2, championship_pct:7.2,  conf_title_pct:18.3,
+        seed_distribution:{'1':4,'2':12,'3':20,'4':28,'5':22,'6':14} },
+      { team:'CLE', w:46, l:36, gb:15,  playoff_pct:96.8, div_title_pct:29.7, championship_pct:5.9,  conf_title_pct:14.1,
+        seed_distribution:{'1':2,'2':8,'3':16,'4':24,'5':28,'6':22} },
+      { team:'PHI', w:44, l:38, gb:17,  playoff_pct:94.1, div_title_pct:14.5, championship_pct:4.3,  conf_title_pct:10.8,
+        seed_distribution:{'1':1,'2':4,'3':10,'4':20,'5':32,'6':33} },
+      { team:'MIA', w:42, l:40, gb:19,  playoff_pct:88.3, div_title_pct:8.1,  championship_pct:2.8,  conf_title_pct:6.9,
+        seed_distribution:{'1':0,'2':2,'3':6,'4':14,'5':28,'6':50} },
+      { team:'IND', w:40, l:42, gb:21,  playoff_pct:78.9, div_title_pct:5.2,  championship_pct:1.9,  conf_title_pct:4.5,
+        seed_distribution:{'1':0,'2':1,'3':3,'4':8,'5':20,'6':68} },
+      { team:'ATL', w:38, l:44, gb:23,  playoff_pct:61.2, div_title_pct:2.3,  championship_pct:0.8,  conf_title_pct:1.9,
+        seed_distribution:{'1':0,'2':0,'3':1,'4':4,'5':12,'6':83} },
+      { team:'CHI', w:35, l:47, gb:26,  playoff_pct:38.7, div_title_pct:0.9,  championship_pct:0.2,  conf_title_pct:0.6,
+        seed_distribution:{'7':30,'8':40,'9':20,'10':10} },
+      { team:'TOR', w:31, l:51, gb:30,  playoff_pct:14.2, div_title_pct:0.2,  championship_pct:0.05, conf_title_pct:0.1,
+        seed_distribution:{'9':25,'10':50,'11':25} },
+      { team:'DET', w:28, l:54, gb:33,  playoff_pct:4.8,  div_title_pct:0.05, championship_pct:0.01, conf_title_pct:0.03,
+        seed_distribution:{'11':40,'12':60} },
+    ]
+  },
+  nhl: {
+    name: 'NHL',
+    teams: [
+      { team:'FLA', w:55, l:18, gb:0,   playoff_pct:99.7, div_title_pct:71.2, championship_pct:18.3, conf_title_pct:39.1,
+        seed_distribution:{'1':45,'2':30,'3':15,'4':10} },
+      { team:'BOS', w:52, l:22, gb:3,   playoff_pct:99.4, div_title_pct:65.8, championship_pct:15.1, conf_title_pct:33.4,
+        seed_distribution:{'1':28,'2':35,'3':22,'4':15} },
+      { team:'TBL', w:48, l:26, gb:7,   playoff_pct:97.8, div_title_pct:48.3, championship_pct:10.2, conf_title_pct:24.7,
+        seed_distribution:{'1':12,'2':25,'3':30,'4':33} },
+      { team:'TOR', w:44, l:30, gb:11,  playoff_pct:93.2, div_title_pct:31.4, championship_pct:6.8,  conf_title_pct:16.9,
+        seed_distribution:{'1':5,'2':15,'3':28,'4':52} },
+      { team:'OTT', w:40, l:34, gb:15,  playoff_pct:82.5, div_title_pct:18.2, championship_pct:3.9,  conf_title_pct:9.8,
+        seed_distribution:{'2':8,'3':22,'4':42,'5':28} },
+      { team:'MTL', w:35, l:39, gb:20,  playoff_pct:58.3, div_title_pct:6.4,  championship_pct:1.2,  conf_title_pct:3.1,
+        seed_distribution:{'4':20,'5':38,'6':42} },
+      { team:'BUF', w:30, l:44, gb:25,  playoff_pct:28.7, div_title_pct:1.8,  championship_pct:0.3,  conf_title_pct:0.7,
+        seed_distribution:{'5':15,'6':35,'7':50} },
+      { team:'DET', w:25, l:49, gb:30,  playoff_pct:9.1,  div_title_pct:0.4,  championship_pct:0.05, conf_title_pct:0.1,
+        seed_distribution:{'7':30,'8':70} },
+    ]
+  },
+  mls: {
+    name: 'MLS',
+    teams: [
+      { team:'LAG', w:18, l:6,  gb:0,   playoff_pct:98.5, div_title_pct:72.1, championship_pct:20.4, conf_title_pct:41.2,
+        seed_distribution:{'1':50,'2':30,'3':15,'4':5} },
+      { team:'SEA', w:16, l:8,  gb:2,   playoff_pct:96.2, div_title_pct:58.3, championship_pct:14.7, conf_title_pct:32.8,
+        seed_distribution:{'1':30,'2':38,'3':22,'4':10} },
+      { team:'POR', w:14, l:10, gb:4,   playoff_pct:88.9, div_title_pct:39.7, championship_pct:8.3,  conf_title_pct:19.6,
+        seed_distribution:{'2':20,'3':35,'4':30,'5':15} },
+      { team:'SJ',  w:10, l:14, gb:8,   playoff_pct:62.4, div_title_pct:14.2, championship_pct:2.1,  conf_title_pct:5.8,
+        seed_distribution:{'4':25,'5':35,'6':40} },
+      { team:'VAN', w:8,  l:16, gb:10,  playoff_pct:41.8, div_title_pct:6.8,  championship_pct:0.8,  conf_title_pct:2.2,
+        seed_distribution:{'5':20,'6':38,'7':42} },
+      { team:'RSL', w:5,  l:19, gb:13,  playoff_pct:18.3, div_title_pct:1.9,  championship_pct:0.2,  conf_title_pct:0.5,
+        seed_distribution:{'7':35,'8':45,'9':20} },
+    ]
+  }
+}
+
+const SCHEDULES = {
+  BOS: [
+    { date:'Apr 21', opp:'PHI', ha:'H' },
+    { date:'Apr 23', opp:'MIL', ha:'A' },
+    { date:'Apr 25', opp:'NYK', ha:'H' },
+    { date:'Apr 27', opp:'CLE', ha:'A' },
+    { date:'Apr 29', opp:'IND', ha:'H' },
+  ],
+  OKC: [
+    { date:'Apr 21', opp:'MIL', ha:'H' },
+    { date:'Apr 23', opp:'BOS', ha:'A' },
+    { date:'Apr 25', opp:'ATL', ha:'H' },
+    { date:'Apr 27', opp:'MIA', ha:'H' },
+  ],
+  FLA: [
+    { date:'Apr 21', opp:'BOS', ha:'H' },
+    { date:'Apr 23', opp:'TBL', ha:'A' },
+    { date:'Apr 26', opp:'OTT', ha:'H' },
+  ],
+}
+
+// ── State ──────────────────────────────────────────────────────────────────
+let currentLeague = 'nba'
+let currentTeam = null
+let sortKey = 'playoff_pct'
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
+  document.getElementById(id).classList.add('active')
+  window.scrollTo(0, 0)
+}
+
+function showHome() { showPage('page-home') }
+
+function showLeague(slug) {
+  currentLeague = slug
+  sortKey = 'playoff_pct'
+  const data = LEAGUES_DATA[slug]
+  document.getElementById('league-title').textContent = `${data.name} Playoff Probabilities`
+  document.getElementById('league-subtitle').textContent = `${data.teams.length} teams · Updated Apr 20, 9:00 AM`
+  renderStandings(data.teams)
+  showPage('page-league')
+}
+
+function showLeagueFromTeam() { showLeague(currentLeague) }
+
+function showTeam(team, leagueSlug) {
+  currentTeam = team
+  currentLeague = leagueSlug
+  const data = LEAGUES_DATA[leagueSlug]
+  const t = data.teams.find(x => x.team === team)
+
+  document.getElementById('team-title').textContent = `${team}`
+  document.getElementById('team-subtitle').textContent = `${data.name} · ${t.w}–${t.l}`
+
+  document.getElementById('team-stats').innerHTML = [
+    { label: 'Playoff %',   value: t.playoff_pct.toFixed(1) + '%',      color: pctColor(t.playoff_pct) },
+    { label: 'Div Title %', value: t.div_title_pct.toFixed(1) + '%',    color: pctColor(t.div_title_pct) },
+    { label: 'Conf Title %',value: t.conf_title_pct.toFixed(1) + '%',   color: pctColor(t.conf_title_pct) },
+    { label: 'Champ %',     value: t.championship_pct.toFixed(1) + '%', color: pctColor(t.championship_pct) },
+  ].map(s => `
+    <div class="stat-card">
+      <div class="stat-label">${s.label}</div>
+      <div class="stat-value" style="color:${s.color}">${s.value}</div>
+    </div>
+  `).join('')
+
+  drawSeedChart(t.seed_distribution)
+
+  const sched = SCHEDULES[team] || []
+  document.getElementById('schedule-body').innerHTML = sched.length
+    ? sched.map(g => `
+        <tr style="border-top:1px solid var(--border)">
+          <td style="padding:0.65rem 1rem;color:var(--muted)">${g.date}</td>
+          <td style="padding:0.65rem 1rem;font-weight:600">${g.opp}</td>
+          <td style="padding:0.65rem 1rem;text-align:center;color:var(--muted)">${g.ha}</td>
+        </tr>`).join('')
+    : `<tr><td colspan="3" style="padding:1rem;color:var(--muted);text-align:center">No upcoming games</td></tr>`
+
+  showPage('page-team')
+}
+
+// ── Standings ──────────────────────────────────────────────────────────────
+function pctColor(p) {
+  return p >= 60 ? 'var(--green)' : p >= 40 ? 'var(--yellow)' : 'var(--red)'
+}
+function fmt(n) { return n.toFixed(1) + '%' }
+
+function renderStandings(teams) {
+  const sorted = [...teams].sort((a, b) => b[sortKey] - a[sortKey])
+  document.getElementById('standings-body').innerHTML = sorted.map((r, i) => `
+    <tr>
+      <td><span class="team-link" onclick="showTeam('${r.team}','${currentLeague}')">${r.team}</span></td>
+      <td class="muted">${r.w}</td>
+      <td class="muted">${r.l}</td>
+      <td class="muted">${r.gb === 0 ? '—' : r.gb}</td>
+      <td style="text-align:right;font-weight:700;color:${pctColor(r.playoff_pct)}">${fmt(r.playoff_pct)}</td>
+      <td style="text-align:right;font-weight:700;color:${pctColor(r.div_title_pct)}">${fmt(r.div_title_pct)}</td>
+      <td style="text-align:right;font-weight:700;color:${pctColor(r.championship_pct)}">${fmt(r.championship_pct)}</td>
+    </tr>`).join('')
+}
+
+function sortBy(key, th) {
+  sortKey = key
+  document.querySelectorAll('thead th').forEach(t => {
+    t.classList.remove('active')
+    t.textContent = t.textContent.replace(' ↓', '')
+  })
+  th.classList.add('active')
+  th.textContent += ' ↓'
+  renderStandings(LEAGUES_DATA[currentLeague].teams)
+}
+
+// ── Seed chart (canvas) ────────────────────────────────────────────────────
+function drawSeedChart(dist) {
+  const canvas = document.getElementById('seed-chart')
+  const parent = canvas.parentElement
+  canvas.width = parent.clientWidth - 48
+  const ctx = canvas.getContext('2d')
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+  const entries = Object.entries(dist)
+    .map(([s, p]) => ({ seed: `Seed ${s}`, pct: Number(p) }))
+    .sort((a, b) => parseInt(a.seed.split(' ')[1]) - parseInt(b.seed.split(' ')[1]))
+
+  const W = canvas.width, H = canvas.height
+  const padL = 48, padR = 12, padT = 8, padB = 32
+  const chartW = W - padL - padR
+  const chartH = H - padT - padB
+  const maxPct = Math.max(...entries.map(e => e.pct), 10)
+
+  // grid lines
+  ctx.strokeStyle = '#2a2d3a'
+  ctx.lineWidth = 1
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + chartH - (i / 4) * chartH
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke()
+    ctx.fillStyle = '#9ca3af'
+    ctx.font = '11px -apple-system, sans-serif'
+    ctx.textAlign = 'right'
+    ctx.fillText(`${Math.round((i / 4) * maxPct)}%`, padL - 6, y + 4)
+  }
+
+  // bars
+  const barW = (chartW / entries.length) * 0.6
+  const gap = chartW / entries.length
+  entries.forEach((e, i) => {
+    const x = padL + i * gap + (gap - barW) / 2
+    const barH = (e.pct / maxPct) * chartH
+    const y = padT + chartH - barH
+    const col = e.pct >= 20 ? '#4ade80' : e.pct >= 10 ? '#facc15' : '#60a5fa'
+
+    // rounded top
+    const r = Math.min(4, barH / 2)
+    ctx.fillStyle = col
+    ctx.beginPath()
+    ctx.moveTo(x + r, y)
+    ctx.lineTo(x + barW - r, y)
+    ctx.quadraticCurveTo(x + barW, y, x + barW, y + r)
+    ctx.lineTo(x + barW, y + barH)
+    ctx.lineTo(x, y + barH)
+    ctx.lineTo(x, y + r)
+    ctx.quadraticCurveTo(x, y, x + r, y)
+    ctx.closePath()
+    ctx.fill()
+
+    // x label
+    ctx.fillStyle = '#9ca3af'
+    ctx.font = '11px -apple-system, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(e.seed, x + barW / 2, H - 8)
+
+    // value label
+    if (barH > 18) {
+      ctx.fillStyle = '#fff'
+      ctx.fillText(`${e.pct.toFixed(0)}%`, x + barW / 2, y - 4)
+    }
+  })
+}
+</script>
+</body>
+</html>
