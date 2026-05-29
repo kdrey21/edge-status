@@ -66,7 +66,7 @@ export default function TeamPageClient({ league, team }: Props) {
       const { fetchUpcomingGames, fetchStandings } = await import('@/lib/espn')
       const [espnGames, standings] = await Promise.all([
         fetchUpcomingGames(config!.espnPath),
-        fetchStandings(config!.espnPath, config!.totalGames, config!.coreLeague),
+        fetchStandings(config!.espnPath, config!.totalGames, config!.coreLeague, config!.coreSeasonType),
       ])
 
       const thisTeam = standings.find(

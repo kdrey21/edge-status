@@ -25,7 +25,11 @@ function seriesWinProb(p: number): number {
   return prob
 }
 
-// Build remaining schedule from ESPN future games or generate synthetically
+// Build remaining schedule from ESPN future games.
+// Returns [] when ESPN provides no future games — this is correct behavior during playoffs
+// (regular season is over; the sim runs only the playoff bracket on current standings).
+// We do NOT synthesize a fake schedule: fabricating random games when there's no real
+// schedule corrupts results (it adds noise that makes every team converge toward 50%).
 function buildRemainingSchedule(
   teams: LeagueTeam[],
   espnGames: Game[],
@@ -33,47 +37,12 @@ function buildRemainingSchedule(
   const idToIdx = new Map(teams.map((t, i) => [t.id, i]))
 
   const futureGames = espnGames.filter(g => !g.completed)
-  if (futureGames.length > 0) {
-    const pairs: Array<[number, number]> = []
-    for (const g of futureGames) {
-      const hi = idToIdx.get(g.homeTeamId)
-      const ai = idToIdx.get(g.awayTeamId)
-      if (hi !== undefined && ai !== undefined) pairs.push([hi, ai])
-    }
-    if (pairs.length > 0) return pairs
-  }
-
-  // Synthetic schedule: greedy round-robin weighted toward same conference
-  const remaining = teams.map(t => t.gamesRemaining)
   const pairs: Array<[number, number]> = []
-  const n = teams.length
-  const MAX_PAIRS = 5_000
-
-  while (pairs.length < MAX_PAIRS) {
-    let maxIdx = -1
-    let maxRem = 0
-    for (let i = 0; i < n; i++) {
-      if (remaining[i] > maxRem) { maxRem = remaining[i]; maxIdx = i }
-    }
-    if (maxIdx === -1 || maxRem <= 0) break
-
-    const sameConf: number[] = []
-    const other: number[] = []
-    for (let i = 0; i < n; i++) {
-      if (i === maxIdx || remaining[i] <= 0) continue
-      if (teams[i].conference === teams[maxIdx].conference) sameConf.push(i)
-      else other.push(i)
-    }
-
-    const pool = sameConf.length > 0 ? sameConf : other
-    if (pool.length === 0) break
-
-    const oppIdx = pool[Math.floor(Math.random() * pool.length)]
-    pairs.push([maxIdx, oppIdx])
-    remaining[maxIdx]--
-    remaining[oppIdx]--
+  for (const g of futureGames) {
+    const hi = idToIdx.get(g.homeTeamId)
+    const ai = idToIdx.get(g.awayTeamId)
+    if (hi !== undefined && ai !== undefined) pairs.push([hi, ai])
   }
-
   return pairs
 }
 

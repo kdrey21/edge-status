@@ -10,7 +10,7 @@ async function espnFetch(url: string): Promise<unknown> {
   try {
     const res = await fetch(url, {
       signal: controller.signal,
-      next: { revalidate: 0 },
+      // next: { revalidate: 0 } is Next.js-specific; ignored in Node.js / browser
       headers: { Accept: 'application/json' },
     })
     if (!res.ok) throw new Error(`ESPN ${res.status}: ${url}`)
@@ -26,13 +26,20 @@ function refId(ref: string, segment: string): string | null {
   return m ? m[1] : null
 }
 
-// "10-8" or "94-68" → { wins, losses }
-function parseSummary(summary: string): { wins: number; losses: number } {
+// Parse a W-L or W-L-D/T record summary string.
+// NBA/MLB/NFL: "94-68"    → { wins: 94, losses: 68, ties: 0 }
+// NHL:         "44-32-6"  → { wins: 44, losses: 32, ties: 6 }  (OTL handled separately)
+// MLS:         "20-6-8"   → { wins: 20, losses: 6,  ties: 8 }  (draws)
+function parseSummary(summary: string): { wins: number; losses: number; ties: number } {
   const parts = summary.split('-').map(n => parseInt(n, 10))
-  return { wins: parts[0] ?? 0, losses: parts[1] ?? 0 }
+  return {
+    wins: parts[0] ?? 0,
+    losses: parts[1] ?? 0,
+    ties: parts[2] ?? 0,
+  }
 }
 
-// Current season year — winter sports (hockey/basketball) started previous Oct
+// Current season year. Winter sports (hockey/basketball) started the previous October.
 function seasonYear(sport: string): number {
   const month = new Date().getMonth() + 1 // 1-12
   const year = new Date().getFullYear()
@@ -42,18 +49,56 @@ function seasonYear(sport: string): number {
   return year
 }
 
-// Best-guess conference from a division/group name
+// Map a group/division name to its conference, sport-aware.
+// This is data-driven to avoid the generic heuristic bugs (e.g., NBA "Central" is East,
+// NHL "Central" is West).
 function inferConference(groupName: string, sport: string): string {
   const g = groupName.toLowerCase()
+
+  // Baseball — AL vs NL. Group names are like "AL East", "NL Central".
   if (sport === 'baseball') {
-    if (g.includes('al ') || g.startsWith('al') || g.includes('american')) return 'AL'
-    if (g.includes('nl ') || g.startsWith('nl') || g.includes('national')) return 'NL'
+    if (g.startsWith('al') || g.includes('american')) return 'AL'
+    if (g.startsWith('nl') || g.includes('national')) return 'NL'
+    return groupName
   }
-  if (g.includes('afc') || g.startsWith('afc')) return 'AFC'
-  if (g.includes('nfc') || g.startsWith('nfc')) return 'NFC'
-  if (g.includes('east') || g.includes('atlantic') || g.includes('metropolitan')) return 'Eastern Conference'
-  if (g.includes('west') || g.includes('pacific') || g.includes('northwest') || g.includes('southwest')) return 'Western Conference'
-  if (g.includes('central') || g.includes('south')) return 'Western Conference'
+
+  // Football — AFC vs NFC. Group names are like "AFC East", "NFC North".
+  if (sport === 'football') {
+    if (g.includes('afc')) return 'AFC'
+    if (g.includes('nfc')) return 'NFC'
+    return groupName
+  }
+
+  // Basketball (NBA):
+  //   Eastern: Atlantic, Central, Southeast
+  //   Western: Northwest, Pacific, Southwest
+  if (sport === 'basketball') {
+    if (g.includes('atlantic') || g.includes('central') || g.includes('southeast')) {
+      return 'Eastern Conference'
+    }
+    if (g.includes('northwest') || g.includes('pacific') || g.includes('southwest')) {
+      return 'Western Conference'
+    }
+    // Fallback for any "East"/"West" in group name
+    if (g.includes('east')) return 'Eastern Conference'
+    if (g.includes('west')) return 'Western Conference'
+    return groupName
+  }
+
+  // Hockey (NHL):
+  //   Eastern: Atlantic, Metropolitan
+  //   Western: Central, Pacific
+  if (sport === 'hockey') {
+    if (g.includes('atlantic') || g.includes('metropolitan')) return 'Eastern Conference'
+    if (g.includes('central') || g.includes('pacific')) return 'Western Conference'
+    if (g.includes('east')) return 'Eastern Conference'
+    if (g.includes('west')) return 'Western Conference'
+    return groupName
+  }
+
+  // Soccer (MLS) and any other sport — generic East/West fallback
+  if (g.includes('east')) return 'Eastern Conference'
+  if (g.includes('west')) return 'Western Conference'
   return groupName
 }
 
@@ -78,15 +123,20 @@ async function buildTeamMap(
       }
     }
   } catch {
-    // Site API unavailable — use fallback names from team IDs
+    // Site API unavailable — fall through; team metadata will be derived from IDs
   }
   return map
 }
 
 // Get all division/conference group IDs for a league+season
-async function fetchGroupIds(sport: string, league: string, season: number): Promise<string[]> {
+async function fetchGroupIds(
+  sport: string,
+  league: string,
+  season: number,
+  seasonType = 2,
+): Promise<string[]> {
   try {
-    const url = `${ESPN_CORE}/${sport}/leagues/${league}/seasons/${season}/types/2/groups?limit=100`
+    const url = `${ESPN_CORE}/${sport}/leagues/${league}/seasons/${season}/types/${seasonType}/groups?limit=100`
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = (await espnFetch(url)) as any
     const items: unknown[] = data.items ?? []
@@ -105,9 +155,10 @@ async function fetchGroupName(
   league: string,
   season: number,
   groupId: string,
+  seasonType = 2,
 ): Promise<string> {
   try {
-    const url = `${ESPN_CORE}/${sport}/leagues/${league}/seasons/${season}/types/2/groups/${groupId}`
+    const url = `${ESPN_CORE}/${sport}/leagues/${league}/seasons/${season}/types/${seasonType}/groups/${groupId}`
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = (await espnFetch(url)) as any
     return data.abbreviation ?? data.name ?? `Group ${groupId}`
@@ -125,9 +176,10 @@ async function fetchGroupStandings(
   groupName: string,
   teamMap: Map<string, { name: string; abbreviation: string; displayName: string }>,
   totalGames: number,
+  seasonType = 2,
 ): Promise<LeagueTeam[]> {
   try {
-    const url = `${ESPN_CORE}/${sport}/leagues/${league}/seasons/${season}/types/2/groups/${groupId}/standings/0`
+    const url = `${ESPN_CORE}/${sport}/leagues/${league}/seasons/${season}/types/${seasonType}/groups/${groupId}/standings/0`
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = (await espnFetch(url)) as any
     const teams: LeagueTeam[] = []
@@ -138,14 +190,22 @@ async function fetchGroupStandings(
 
       const meta = teamMap.get(teamId)
       const record = standing.records?.[0]
-      const { wins, losses } = record?.summary ? parseSummary(record.summary) : { wins: 0, losses: 0 }
+      const { wins, losses, ties: summaryTies } = record?.summary
+        ? parseSummary(record.summary)
+        : { wins: 0, losses: 0, ties: 0 }
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const statsArr: any[] = record?.stats ?? []
-      const otl = statsArr.find(s => s.name === 'OTLosses')?.value ?? 0
+      // OTL for hockey; draws come from parseSummary for soccer
+      const otl = statsArr.find((s: { name: string }) => s.name === 'OTLosses')?.value ?? 0
+      const ties = summaryTies || Math.round(otl)
 
-      const gamesPlayed = wins + losses + Math.round(otl)
+      const gamesPlayed = wins + losses + ties
       const gamesRemaining = Math.max(0, totalGames - gamesPlayed)
-      const winPct = gamesPlayed > 0 ? wins / gamesPlayed : 0
+
+      // Win percentage — for soccer, draws count as half a win
+      const effectiveWins = sport === 'soccer' ? wins + ties * 0.5 : wins
+      const winPct = gamesPlayed > 0 ? effectiveWins / gamesPlayed : 0
       const elo = 1500 + (winPct - 0.5) * 400
 
       teams.push({
@@ -155,9 +215,9 @@ async function fetchGroupStandings(
         displayName: meta?.displayName ?? `Team ${teamId}`,
         wins,
         losses,
-        ties: Math.round(otl),
+        ties,
         winPct,
-        gamesBack: 0,
+        gamesBack: 0, // Phase 3: compute from leader's record
         division: groupName,
         conference: inferConference(groupName, sport),
         elo,
@@ -174,6 +234,7 @@ export async function fetchStandings(
   espnPath: string,
   totalGames: number,
   coreLeague?: string,
+  coreSeasonType = 2,
 ): Promise<LeagueTeam[]> {
   const [sport, leagueFromPath] = espnPath.split('/')
   const league = coreLeague ?? leagueFromPath
@@ -181,7 +242,7 @@ export async function fetchStandings(
 
   const [teamMap, groupIds] = await Promise.all([
     buildTeamMap(espnPath),
-    fetchGroupIds(sport, league, season),
+    fetchGroupIds(sport, league, season, coreSeasonType),
   ])
 
   if (groupIds.length === 0) return []
@@ -190,7 +251,7 @@ export async function fetchStandings(
 
   await Promise.all(
     groupIds.map(async groupId => {
-      const groupName = await fetchGroupName(sport, league, season, groupId)
+      const groupName = await fetchGroupName(sport, league, season, groupId, coreSeasonType)
       const teams = await fetchGroupStandings(
         sport,
         league,
@@ -199,6 +260,7 @@ export async function fetchStandings(
         groupName,
         teamMap,
         totalGames,
+        coreSeasonType,
       )
       allTeams.push(...teams)
     }),

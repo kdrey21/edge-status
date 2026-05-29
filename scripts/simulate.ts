@@ -38,7 +38,7 @@ async function main() {
         console.log(`  [${league.slug.toUpperCase()}] Fetching standings…`)
 
         const [teams, espnGames] = await Promise.all([
-          fetchStandings(league.espnPath, league.totalGames, league.coreLeague),
+          fetchStandings(league.espnPath, league.totalGames, league.coreLeague, league.coreSeasonType),
           fetchUpcomingGames(league.espnPath),
         ])
 

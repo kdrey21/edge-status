@@ -12,7 +12,7 @@ export interface SimResult {
   seed_distribution: Record<string, number>
   magic_number: number | null
   elim_number: number | null
-  // betting edge fields (v2)
+  // betting edge fields (Phase 3)
   implied_playoff_pct: number | null
   edge_pct: number | null
   updated_at: string
@@ -48,7 +48,8 @@ export interface LeagueConfig {
   slug: string
   sport: string
   espnPath: string
-  coreLeague?: string   // overrides the league segment in the core API URL
+  coreLeague?: string      // overrides the league segment in the core API URL
+  coreSeasonType?: number  // overrides season type in core API URL (default 2 = regular season)
   totalGames: number
   playoffTeamsPerConference: number
   // ESPN team abbreviations — used as fallback for generateStaticParams at build time.
@@ -119,14 +120,16 @@ export const LEAGUES: LeagueConfig[] = [
     slug: 'mls',
     sport: 'soccer',
     espnPath: 'soccer/usa.1',
-    coreLeague: 'mls',
+    // Core API requires 'usa.1' (not 'mls') and season type 1 for regular season
+    coreLeague: 'usa.1',
+    coreSeasonType: 1,
     totalGames: 34,
     playoffTeamsPerConference: 9,
-    // ESPN abbreviations (approximate — MLS data currently broken; update when fixed)
+    // ESPN abbreviations — verified from site API (30 teams, 2026 season)
     teams: [
-      'ATL','AUS','CHI','CIN','CLB','CLT','COL','DAL','DC','HOU',
-      'LA','LAFC','MIA','MIN','MTL','NE','NSH','NY','NYC','ORL',
-      'PHI','POR','RSL','SEA','SJ','SKC','STL','TOR','VAN',
+      'ATL','ATX','CHI','CIN','CLB','CLT','COL','DAL','DC','HOU',
+      'LA','LAFC','MIA','MIN','MTL','NE','NSH','RBNY','NYC','ORL',
+      'PHI','POR','RSL','SD','SEA','SJ','SKC','STL','TOR','VAN',
     ],
   },
 ]
