@@ -1,31 +1,51 @@
-import { NextRequest, NextResponse } from 'next/server'
+/**
+ * Daily simulation script — run by GitHub Actions (simulate.yml).
+ *
+ * Usage:
+ *   npx tsx scripts/simulate.ts
+ *
+ * Required env vars:
+ *   SUPABASE_URL               — Supabase project URL
+ *   SUPABASE_SERVICE_ROLE_KEY  — service-role key (write access)
+ */
+
+import { createClient } from '@supabase/supabase-js'
 import { LEAGUES } from '@/types'
 import { fetchStandings, fetchUpcomingGames, isLeagueActive } from '@/lib/espn'
 import { runSimulation } from '@/lib/simulation'
-import { getServiceClient } from '@/lib/supabase'
 
-export const maxDuration = 300 // 5 min — Vercel Pro limit; free tier caps at 10s (hobby)
-export const dynamic = 'force-dynamic'
+// Validate secrets before doing any work
+const SUPABASE_URL = process.env.SUPABASE_URL
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-export async function GET(req: NextRequest) {
-  const auth = req.headers.get('authorization') ?? ''
-  const secret = process.env.CRON_SECRET
-  if (!secret || auth !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.error(
+    'Missing required env vars: SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY',
+  )
+  process.exit(1)
+}
 
-  const db = getServiceClient()
+const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+async function main() {
+  console.log(`\n🏆 EdgeStatus simulation run — ${new Date().toISOString()}\n`)
+
   const results: { league: string; teams: number; status: string }[] = []
 
   await Promise.all(
-    LEAGUES.map(async (league) => {
+    LEAGUES.map(async league => {
       try {
+        console.log(`  [${league.slug.toUpperCase()}] Fetching standings…`)
+
         const [teams, espnGames] = await Promise.all([
           fetchStandings(league.espnPath, league.totalGames, league.coreLeague),
           fetchUpcomingGames(league.espnPath),
         ])
 
         if (!isLeagueActive(teams)) {
+          console.log(
+            `  [${league.slug.toUpperCase()}] Inactive — ${teams.length} teams, no games played`,
+          )
           results.push({
             league: league.slug,
             teams: teams.length,
@@ -33,6 +53,10 @@ export async function GET(req: NextRequest) {
           })
           return
         }
+
+        console.log(
+          `  [${league.slug.toUpperCase()}] Running sim for ${teams.length} teams…`,
+        )
 
         const simResults = runSimulation(
           teams,
@@ -44,8 +68,7 @@ export async function GET(req: NextRequest) {
         // Build a lookup map for current standings (wins/losses/GB)
         const standingsMap = new Map(teams.map(t => [t.abbreviation, t]))
 
-        // Upsert results — one row per team per league
-        const rows = simResults.map((r) => {
+        const rows = simResults.map(r => {
           const standing = standingsMap.get(r.team)
           return {
             team: r.team,
@@ -60,6 +83,7 @@ export async function GET(req: NextRequest) {
             seed_distribution: r.seed_distribution,
             magic_number: r.magic_number,
             elim_number: r.elim_number,
+            // Phase 3: will be populated when Kalshi + Odds API wired
             implied_playoff_pct: null,
             edge_pct: null,
             updated_at: new Date().toISOString(),
@@ -72,13 +96,31 @@ export async function GET(req: NextRequest) {
 
         if (error) throw error
 
+        console.log(
+          `  [${league.slug.toUpperCase()}] ✓ ${rows.length} teams upserted`,
+        )
         results.push({ league: league.slug, teams: rows.length, status: 'ok' })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
+        console.error(`  [${league.slug.toUpperCase()}] ✗ Error: ${msg}`)
         results.push({ league: league.slug, teams: 0, status: `error: ${msg}` })
       }
     }),
   )
 
-  return NextResponse.json({ ok: true, results })
+  console.log('\n📊 Results summary:')
+  console.log(JSON.stringify({ ok: true, results }, null, 2))
+
+  const errors = results.filter(r => r.status.startsWith('error'))
+  if (errors.length > 0) {
+    console.error(`\n⚠️  ${errors.length} league(s) failed`)
+    process.exit(1)
+  }
+
+  console.log('\n✅ Simulation complete')
 }
+
+main().catch(err => {
+  console.error('Fatal error:', err)
+  process.exit(1)
+})

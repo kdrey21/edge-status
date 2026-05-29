@@ -51,6 +51,9 @@ export interface LeagueConfig {
   coreLeague?: string   // overrides the league segment in the core API URL
   totalGames: number
   playoffTeamsPerConference: number
+  // ESPN team abbreviations — used as fallback for generateStaticParams at build time.
+  // Must match what ESPN's API returns (used as team identifiers throughout).
+  teams: string[]
 }
 
 export const LEAGUES: LeagueConfig[] = [
@@ -61,6 +64,12 @@ export const LEAGUES: LeagueConfig[] = [
     espnPath: 'basketball/nba',
     totalGames: 82,
     playoffTeamsPerConference: 8,
+    // ESPN abbreviations (30 teams)
+    teams: [
+      'ATL','BOS','BKN','CHA','CHI','CLE','DAL','DEN','DET','GS',
+      'HOU','IND','LAC','LAL','MEM','MIA','MIL','MIN','NO','NY',
+      'OKC','ORL','PHI','PHX','POR','SAC','SA','TOR','UTA','WSH',
+    ],
   },
   {
     name: 'NHL',
@@ -69,6 +78,13 @@ export const LEAGUES: LeagueConfig[] = [
     espnPath: 'hockey/nhl',
     totalGames: 82,
     playoffTeamsPerConference: 8,
+    // ESPN abbreviations (32 teams)
+    teams: [
+      'ANA','BOS','BUF','CGY','CAR','CHI','COL','CBJ','DAL','DET',
+      'EDM','FLA','LA','MIN','MTL','NSH','NJ','NYI','NYR','OTT',
+      'PHI','PIT','SJS','SEA','STL','TB','TOR','UTA','VAN','VGK','WSH',
+      'ARI',
+    ],
   },
   {
     name: 'MLB',
@@ -77,6 +93,12 @@ export const LEAGUES: LeagueConfig[] = [
     espnPath: 'baseball/mlb',
     totalGames: 162,
     playoffTeamsPerConference: 6,
+    // ESPN abbreviations (30 teams)
+    teams: [
+      'ARI','ATL','BAL','BOS','CHC','CWS','CIN','CLE','COL','DET',
+      'HOU','KC','LAA','LAD','MIA','MIL','MIN','NYM','NYY','OAK',
+      'PHI','PIT','SD','SEA','SF','STL','TB','TEX','TOR','WSH',
+    ],
   },
   {
     name: 'NFL',
@@ -85,6 +107,12 @@ export const LEAGUES: LeagueConfig[] = [
     espnPath: 'football/nfl',
     totalGames: 17,
     playoffTeamsPerConference: 7,
+    // ESPN abbreviations (32 teams)
+    teams: [
+      'ARI','ATL','BAL','BUF','CAR','CHI','CIN','CLE','DAL','DEN',
+      'DET','GB','HOU','IND','JAX','KC','LAC','LAR','LV','MIA',
+      'MIN','NE','NO','NYG','NYJ','PHI','PIT','SEA','SF','TB','TEN','WSH',
+    ],
   },
   {
     name: 'MLS',
@@ -94,6 +122,12 @@ export const LEAGUES: LeagueConfig[] = [
     coreLeague: 'mls',
     totalGames: 34,
     playoffTeamsPerConference: 9,
+    // ESPN abbreviations (approximate — MLS data currently broken; update when fixed)
+    teams: [
+      'ATL','AUS','CHI','CIN','CLB','CLT','COL','DAL','DC','HOU',
+      'LA','LAFC','MIA','MIN','MTL','NE','NSH','NY','NYC','ORL',
+      'PHI','POR','RSL','SEA','SJ','SKC','STL','TOR','VAN',
+    ],
   },
 ]
 

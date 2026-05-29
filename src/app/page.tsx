@@ -1,16 +1,20 @@
+'use client'
+
+import { useState, useEffect } from 'react'
 import { LEAGUES } from '@/types'
 import { getAllLeaguesSummary } from '@/lib/supabase'
 import LeagueCard from '@/components/LeagueCard'
 
-export const revalidate = 3600
+export default function HomePage() {
+  const [summary, setSummary] = useState<{ league: string; count: number; updated_at: string }[]>(
+    [],
+  )
 
-export default async function HomePage() {
-  let summary: { league: string; count: number; updated_at: string }[] = []
-  try {
-    summary = await getAllLeaguesSummary()
-  } catch {
-    // Supabase not configured yet — show all leagues as inactive
-  }
+  useEffect(() => {
+    getAllLeaguesSummary()
+      .then(setSummary)
+      .catch(() => {})
+  }, [])
 
   const summaryMap = new Map(summary.map(s => [s.league, s]))
 
