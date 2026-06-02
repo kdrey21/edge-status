@@ -7,14 +7,20 @@
  * Required env vars:
  *   SUPABASE_URL               — Supabase project URL
  *   SUPABASE_SERVICE_ROLE_KEY  — service-role key (write access)
+ *
+ * Optional env vars (Phase 3 market edge — leave unset to skip):
+ *   ODDS_API_KEY               — The Odds API key (https://the-odds-api.com)
+ *   KALSHI_API_TOKEN           — Kalshi read-only Bearer token (kalshi.com → Settings → API)
  */
 
 import { createClient } from '@supabase/supabase-js'
 import { LEAGUES } from '@/types'
 import { fetchStandings, fetchUpcomingGames, isLeagueActive } from '@/lib/espn'
 import { runSimulation } from '@/lib/simulation'
+import { fetchSportsbookChampionshipOdds } from '@/lib/odds'
+import { fetchKalshiChampionshipOdds } from '@/lib/kalshi'
 
-// Validate secrets before doing any work
+// Validate required secrets before doing any work
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 
@@ -25,10 +31,53 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   process.exit(1)
 }
 
+// Optional — market edge columns are skipped if keys are absent
+const ODDS_API_KEY = process.env.ODDS_API_KEY ?? null
+const KALSHI_API_TOKEN = process.env.KALSHI_API_TOKEN ?? null
+
 const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+/**
+ * Match a full team name (from a market) to the closest team abbreviation
+ * in our ESPN standings data.
+ *
+ * Strategy:
+ *   1. Exact match on displayName (lowercase)
+ *   2. Exact match on name (nickname only, lowercase)
+ *   3. Market name contains team's city/nickname or vice versa
+ *
+ * Returns the team's abbreviation (uppercased) or null if no match found.
+ */
+function matchMarketName(
+  marketName: string,
+  teams: Array<{ abbreviation: string; name: string; displayName: string }>,
+): string | null {
+  const mn = marketName.toLowerCase().trim()
+
+  for (const t of teams) {
+    if (t.displayName.toLowerCase() === mn) return t.abbreviation
+  }
+  for (const t of teams) {
+    if (t.name.toLowerCase() === mn) return t.abbreviation
+  }
+  // Partial: market name includes our team name or vice versa
+  for (const t of teams) {
+    const dn = t.displayName.toLowerCase()
+    const nn = t.name.toLowerCase()
+    if (mn.includes(nn) || nn.includes(mn)) return t.abbreviation
+    if (mn.includes(dn) || dn.includes(mn)) return t.abbreviation
+  }
+  return null
+}
 
 async function main() {
   console.log(`\n🏆 EdgeStatus simulation run — ${new Date().toISOString()}\n`)
+
+  const hasOddsKey = Boolean(ODDS_API_KEY)
+  const hasKalshiKey = Boolean(KALSHI_API_TOKEN)
+  console.log(
+    `  Market data: Odds API=${hasOddsKey ? '✓' : '✗ (skipped)'}  Kalshi=${hasKalshiKey ? '✓' : '✗ (skipped)'}\n`,
+  )
 
   const results: { league: string; teams: number; status: string }[] = []
 
@@ -65,11 +114,57 @@ async function main() {
           league.playoffTeamsPerConference,
         )
 
+        // -------------------------------------------------------------------
+        // Phase 3: Market edge = Kalshi % vs Sportsbook de-vigged %
+        // EV% = kalshi_champ_pct − sportsbook_champ_pct
+        // Positive = sportsbook is undervaluing the team vs prediction market
+        // -------------------------------------------------------------------
+        let oddsMap = new Map<string, number>()
+        let kalshiMap = new Map<string, number>()
+
+        const canFetchMarkets =
+          hasOddsKey && hasKalshiKey &&
+          league.oddsApiSport != null &&
+          league.kalshiSeries != null
+
+        if (canFetchMarkets) {
+          console.log(`  [${league.slug.toUpperCase()}] Fetching market data…`)
+          const [oddsResult, kalshiResult] = await Promise.allSettled([
+            fetchSportsbookChampionshipOdds(league.oddsApiSport!, ODDS_API_KEY!),
+            fetchKalshiChampionshipOdds(league.kalshiSeries!, KALSHI_API_TOKEN!),
+          ])
+          if (oddsResult.status === 'fulfilled') oddsMap = oddsResult.value
+          if (kalshiResult.status === 'fulfilled') kalshiMap = kalshiResult.value
+          console.log(
+            `  [${league.slug.toUpperCase()}] Odds=${oddsMap.size} teams  Kalshi=${kalshiMap.size} teams`,
+          )
+        }
+
         // Build a lookup map for current standings (wins/losses/GB)
         const standingsMap = new Map(teams.map(t => [t.abbreviation, t]))
 
         const rows = simResults.map(r => {
           const standing = standingsMap.get(r.team)
+
+          // Match market prices to this team
+          const teamMeta = standing
+            ? { abbreviation: standing.abbreviation, name: standing.name, displayName: standing.displayName }
+            : null
+
+          let kalshi_champ_pct: number | null = null
+          let sportsbook_champ_pct: number | null = null
+          let champ_ev_pct: number | null = null
+
+          if (teamMeta && canFetchMarkets) {
+            const kalshiEntry = findInMap(kalshiMap, teamMeta)
+            const oddsEntry = findInMap(oddsMap, teamMeta)
+            if (kalshiEntry != null) kalshi_champ_pct = kalshiEntry
+            if (oddsEntry != null) sportsbook_champ_pct = oddsEntry
+            if (kalshi_champ_pct != null && sportsbook_champ_pct != null) {
+              champ_ev_pct = kalshi_champ_pct - sportsbook_champ_pct
+            }
+          }
+
           return {
             team: r.team,
             league: r.league,
@@ -83,7 +178,10 @@ async function main() {
             seed_distribution: r.seed_distribution,
             magic_number: r.magic_number,
             elim_number: r.elim_number,
-            // Phase 3: will be populated when Kalshi + Odds API wired
+            kalshi_champ_pct,
+            sportsbook_champ_pct,
+            champ_ev_pct,
+            // Legacy columns — kept for schema compat, no longer meaningful
             implied_playoff_pct: null,
             edge_pct: null,
             updated_at: new Date().toISOString(),
@@ -96,8 +194,12 @@ async function main() {
 
         if (error) throw error
 
+        const edgeTeams = rows.filter(r => r.champ_ev_pct != null && r.champ_ev_pct > 5)
         console.log(
-          `  [${league.slug.toUpperCase()}] ✓ ${rows.length} teams upserted`,
+          `  [${league.slug.toUpperCase()}] ✓ ${rows.length} teams upserted` +
+          (edgeTeams.length > 0
+            ? ` | 🎯 ${edgeTeams.length} VALUE team(s): ${edgeTeams.map(r => `${r.team} +${r.champ_ev_pct!.toFixed(1)}%`).join(', ')}`
+            : ''),
         )
         results.push({ league: league.slug, teams: rows.length, status: 'ok' })
       } catch (err) {
@@ -118,6 +220,30 @@ async function main() {
   }
 
   console.log('\n✅ Simulation complete')
+}
+
+/**
+ * Look up a team in a market-name map (lowercase keys → %).
+ * Tries displayName, then name (nickname), then partial match.
+ */
+function findInMap(
+  map: Map<string, number>,
+  team: { abbreviation: string; name: string; displayName: string },
+): number | null {
+  if (map.size === 0) return null
+
+  const dn = team.displayName.toLowerCase()
+  const nn = team.name.toLowerCase()
+
+  if (map.has(dn)) return map.get(dn)!
+  if (map.has(nn)) return map.get(nn)!
+
+  // Partial match scan
+  for (const [key, val] of map) {
+    if (key.includes(nn) || nn.includes(key)) return val
+    if (key.includes(dn) || dn.includes(key)) return val
+  }
+  return null
 }
 
 main().catch(err => {

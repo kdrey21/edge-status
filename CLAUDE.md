@@ -102,31 +102,44 @@ to expose — the anon key is public by design; RLS protects all writes.
 
 ---
 
-## Database Schema (current)
+## Database Schema (current — Phase 3)
 
 ```sql
 create table sim_results (
-  id                  uuid primary key default gen_random_uuid(),
-  team                text not null,           -- team abbreviation e.g. "BOS"
-  league              text not null,           -- "nba", "nhl", "mlb", "nfl", "mls"
-  wins                int default 0,
-  losses              int default 0,
-  games_back          numeric default 0,
-  playoff_pct         numeric,
-  div_title_pct       numeric,
-  conf_title_pct      numeric,
-  championship_pct    numeric,
-  seed_distribution   jsonb,                   -- {"1": 12.3, "2": 18.1, ...}
-  magic_number        int,
-  elim_number         int,
-  implied_playoff_pct numeric,                 -- v2: from betting odds
-  edge_pct            numeric,                 -- v2: our % minus implied %
-  updated_at          timestamptz default now(),
+  id                   uuid primary key default gen_random_uuid(),
+  team                 text not null,           -- team abbreviation e.g. "BOS"
+  league               text not null,           -- "nba", "nhl", "mlb", "nfl", "mls"
+  wins                 int default 0,
+  losses               int default 0,
+  games_back           numeric default 0,
+  playoff_pct          numeric,
+  div_title_pct        numeric,
+  conf_title_pct       numeric,
+  championship_pct     numeric,
+  seed_distribution    jsonb,                   -- {"1": 12.3, "2": 18.1, ...}
+  magic_number         int,
+  elim_number          int,
+  -- Phase 3 market edge columns (null when API keys not set or market unavailable)
+  kalshi_champ_pct     numeric,                 -- Kalshi field-normalized championship %
+  sportsbook_champ_pct numeric,                 -- Odds API multiplicatively de-vigged %
+  champ_ev_pct         numeric,                 -- EV%: kalshi_champ_pct − sportsbook_champ_pct
+  -- Legacy (kept for schema compat, no longer written)
+  implied_playoff_pct  numeric,
+  edge_pct             numeric,
+  updated_at           timestamptz default now(),
   unique (team, league)
 );
 
 alter table sim_results enable row level security;
 create policy "Public read" on sim_results for select using (true);
+```
+
+### Schema migration (run once in Supabase SQL editor):
+```sql
+alter table sim_results
+  add column if not exists kalshi_champ_pct     numeric,
+  add column if not exists sportsbook_champ_pct numeric,
+  add column if not exists champ_ev_pct         numeric;
 ```
 
 ---
@@ -141,20 +154,30 @@ Go to: `github.com/kdrey21/edge-status` → Settings → Secrets and variables �
 | `SUPABASE_SERVICE_ROLE_KEY` | `simulate.yml` | Service role key (Supabase → API settings) |
 | `NEXT_PUBLIC_SUPABASE_URL` | `deploy-pages.yml` | Same Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `deploy-pages.yml` | Anon/public key (Supabase → API settings) |
+| `ODDS_API_KEY` | `simulate.yml` | The Odds API key (https://the-odds-api.com) — optional |
+| `KALSHI_API_TOKEN` | `simulate.yml` | Kalshi read-only Bearer token (kalshi.com → Settings → API) — optional |
 
 GitHub Pages must be enabled: repo Settings → Pages → Source: **GitHub Actions**
+
+**Market data secrets are optional** — the sim runs fine without them; market columns will be null.
 
 ---
 
 ## Current Status
 
+### Phases Complete
+- **Phase 1** ✓ — GitHub Actions (simulate.yml + deploy-pages.yml), GitHub Pages static export, basePath /edge-status
+- **Phase 2** ✓ — MLS fixed (usa.1 + seasonType 1), inferConference rewritten sport-specific, synthetic schedule removed
+- **Phase 3** ✓ — Market edge engine: src/lib/odds.ts + src/lib/kalshi.ts, simulate.ts updated, StandingsTable shows Kalshi/Book/EV% columns + VALUE badge, TeamPageClient shows edge card
+
 ### Working ✓
-- NBA (30 teams), NHL (32 teams), MLB (30 teams) simulate successfully
+- NBA (30 teams), NHL (32 teams), MLB (30 teams), MLS simulate successfully
+- NFL correctly shows as inactive in off-season
 - Static export builds cleanly with `npm run build`
 - GitHub Actions workflows: `simulate.yml` (daily sim), `deploy-pages.yml` (on push)
 - Supabase RLS configured for public reads
-- Standings table shows W, L, GB, Playoff %, Div Title %, Champ %
-- Team detail page shows seed distribution chart and upcoming schedule
+- Standings table: W, L, GB, Playoff %, Div %, Sim Champ %, Kalshi %, Book %, EV% (market cols auto-hide when no data)
+- Team detail page: stat cards, championship edge card (when data available), seed chart, upcoming schedule
 - Home page shows league cards with active/inactive badge
 
 ### Not Working / Known Issues

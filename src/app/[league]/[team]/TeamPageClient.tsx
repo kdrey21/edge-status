@@ -189,6 +189,67 @@ export default function TeamPageClient({ league, team }: Props) {
             </div>
           )}
 
+          {/* Market edge (Phase 3) — only shown when Kalshi + Sportsbook data is available */}
+          {(result.kalshi_champ_pct != null || result.sportsbook_champ_pct != null) && (
+            <div className="rounded-xl border border-surface-border bg-surface-card p-6 mb-6">
+              <h2 className="text-lg font-bold text-white mb-1">Championship Edge</h2>
+              <p className="text-xs text-gray-500 mb-4">
+                Positive EV% means the sportsbook is undervaluing this team vs Kalshi&apos;s
+                prediction market reference price.
+              </p>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-lg bg-surface-bg border border-surface-border p-4">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
+                    Kalshi %
+                  </p>
+                  <p className="text-2xl font-black text-white">
+                    {result.kalshi_champ_pct != null
+                      ? result.kalshi_champ_pct.toFixed(1) + '%'
+                      : '—'}
+                  </p>
+                  <p className="text-xs text-gray-600 mt-1">Field-normalized</p>
+                </div>
+                <div className="rounded-lg bg-surface-bg border border-surface-border p-4">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
+                    Book %
+                  </p>
+                  <p className="text-2xl font-black text-white">
+                    {result.sportsbook_champ_pct != null
+                      ? result.sportsbook_champ_pct.toFixed(1) + '%'
+                      : '—'}
+                  </p>
+                  <p className="text-xs text-gray-600 mt-1">De-vigged consensus</p>
+                </div>
+                <div className="rounded-lg bg-surface-bg border border-surface-border p-4">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
+                    EV%
+                  </p>
+                  <p
+                    className={`text-2xl font-black ${
+                      result.champ_ev_pct == null
+                        ? 'text-gray-500'
+                        : result.champ_ev_pct > 5
+                        ? 'text-green-400'
+                        : result.champ_ev_pct < -5
+                        ? 'text-red-400'
+                        : 'text-gray-300'
+                    }`}
+                  >
+                    {result.champ_ev_pct != null
+                      ? (result.champ_ev_pct > 0 ? '+' : '') +
+                        result.champ_ev_pct.toFixed(1) + '%'
+                      : '—'}
+                  </p>
+                  {result.champ_ev_pct != null && result.champ_ev_pct > 5 && (
+                    <span className="inline-block mt-1 rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-widest bg-green-400/20 text-green-300 border border-green-400/40">
+                      VALUE
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Seed distribution */}
           <div className="rounded-xl border border-surface-border bg-surface-card p-6 mb-6">
             <h2 className="text-lg font-bold text-white mb-4">Seed Distribution</h2>

@@ -37,13 +37,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Load environment secrets
+        run: echo "${{ secrets.EDGE_STATUS_ENV }}" >> $GITHUB_ENV
+
       - name: Build (next export)
         run: npm run build
-        env:
-          # Baked into the browser bundle at build time.
-          # Safe to expose — anon key is public by design; RLS protects writes.
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
