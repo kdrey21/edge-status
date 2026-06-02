@@ -13,7 +13,7 @@ for NBA, NHL, MLB, NFL, and MLS — all powered by Monte Carlo simulation.
 
 **Live URL:** https://kdrey21.github.io/edge-status
 **GitHub:** https://github.com/kdrey21/edge-status
-**Owner:** Keith Dreyer (keith.dreyer@gmail.com)
+**Owner:** [@kdrey21](https://github.com/kdrey21)
 
 ---
 
