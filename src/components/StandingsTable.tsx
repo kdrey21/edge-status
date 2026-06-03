@@ -9,7 +9,6 @@ import Sparkline from '@/components/Sparkline'
 type SortKey =
   | 'wins'
   | 'playoff_pct'
-  | 'div_title_pct'
   | 'championship_pct'
   | 'kalshi_champ_pct'
   | 'sportsbook_champ_pct'
@@ -111,7 +110,6 @@ export default function StandingsTable({ results, league, snapshots }: Props) {
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-400">L</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-400">GB</th>
                 {col('Playoff %', 'playoff_pct', 'text-right')}
-                {col('Div %', 'div_title_pct', 'text-right')}
                 {col('Sim Champ %', 'championship_pct', 'text-right', 'Monte Carlo simulation championship probability')}
               </>
             )}
@@ -174,9 +172,6 @@ export default function StandingsTable({ results, league, snapshots }: Props) {
                       </div>
                     </td>
 
-                    <td className={`px-4 py-3 text-right font-bold ${pctColor(r.div_title_pct)}`}>
-                      {fmt(r.div_title_pct)}
-                    </td>
                     <td className={`px-4 py-3 text-right font-bold ${pctColor(r.championship_pct)}`}>
                       {fmt(r.championship_pct)}
                     </td>
