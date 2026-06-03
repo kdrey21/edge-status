@@ -17,11 +17,34 @@ interface Props {
   team: string
 }
 
-function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
+function StatCard({
+  label,
+  value,
+  color,
+  tooltip,
+  sub,
+}: {
+  label: string
+  value: string
+  color: string
+  tooltip?: string
+  sub?: string
+}) {
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-card p-5">
-      <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">{label}</p>
+    <div className="rounded-xl border border-surface-border bg-surface-card p-5 group relative">
+      <p className="text-xs text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+        {label}
+        {tooltip && (
+          <span className="cursor-help text-gray-600 hover:text-gray-400 transition-colors">
+            ⓘ
+            <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 rounded-lg bg-gray-900 border border-surface-border px-3 py-2 text-xs text-gray-300 leading-snug opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg">
+              {tooltip}
+            </span>
+          </span>
+        )}
+      </p>
       <p className={`text-3xl font-black ${color}`}>{value}</p>
+      {sub && <p className="text-xs text-gray-600 mt-1">{sub}</p>}
     </div>
   )
 }
@@ -154,28 +177,71 @@ export default function TeamPageClient({ league, team }: Props) {
       ) : (
         <>
           {/* Key stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             <StatCard
               label="Make Playoffs"
-              value={result.playoff_pct.toFixed(1) + '%'}
-              color={pctColor(result.playoff_pct)}
+              value={result.playoff_pct != null ? result.playoff_pct.toFixed(1) + '%' : '—'}
+              color={result.playoff_pct != null ? pctColor(result.playoff_pct) : 'text-gray-500'}
+              tooltip="Probability of making the postseason in 50,000 simulated seasons."
             />
             <StatCard
               label="Win Division"
-              value={result.div_title_pct.toFixed(1) + '%'}
-              color={pctColor(result.div_title_pct)}
+              value={result.div_title_pct != null ? result.div_title_pct.toFixed(1) + '%' : '—'}
+              color={result.div_title_pct != null ? pctColor(result.div_title_pct) : 'text-gray-500'}
+              tooltip="Probability of finishing first in the division."
             />
             <StatCard
               label="Win Conference"
-              value={result.conf_title_pct.toFixed(1) + '%'}
-              color={pctColor(result.conf_title_pct)}
+              value={result.conf_title_pct != null ? result.conf_title_pct.toFixed(1) + '%' : '—'}
+              color={result.conf_title_pct != null ? pctColor(result.conf_title_pct) : 'text-gray-500'}
+              tooltip="Probability of winning the conference championship."
             />
             <StatCard
               label="Win Championship"
-              value={result.championship_pct.toFixed(1) + '%'}
-              color={pctColor(result.championship_pct)}
+              value={result.championship_pct != null ? result.championship_pct.toFixed(1) + '%' : '—'}
+              color={result.championship_pct != null ? pctColor(result.championship_pct) : 'text-gray-500'}
+              tooltip="Probability of winning it all — based on simulated bracket outcomes."
             />
           </div>
+
+          {/* Market championship odds — Kalshi + Sportsbook */}
+          {(result.kalshi_champ_pct != null || result.sportsbook_champ_pct != null) && (
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
+              {result.kalshi_champ_pct != null && (
+                <StatCard
+                  label="Kalshi Championship %"
+                  value={result.kalshi_champ_pct.toFixed(1) + '%'}
+                  color="text-white"
+                  tooltip="Prediction market implied probability, field-normalized to sum to 100%."
+                  sub="Prediction market"
+                />
+              )}
+              {result.sportsbook_champ_pct != null && (
+                <StatCard
+                  label="Sportsbook Championship %"
+                  value={result.sportsbook_champ_pct.toFixed(1) + '%'}
+                  color="text-white"
+                  tooltip="Consensus sportsbook implied probability, de-vigged to remove the house edge."
+                  sub="De-vigged consensus"
+                />
+              )}
+              {result.champ_ev_pct != null && (
+                <StatCard
+                  label="Market Edge (EV%)"
+                  value={(result.champ_ev_pct > 0 ? '+' : '') + result.champ_ev_pct.toFixed(1) + '%'}
+                  color={
+                    result.champ_ev_pct > 5
+                      ? 'text-green-400'
+                      : result.champ_ev_pct < -5
+                      ? 'text-red-400'
+                      : 'text-gray-300'
+                  }
+                  tooltip="Kalshi % minus Sportsbook %. Positive = sportsbooks undervaluing this team relative to the prediction market."
+                  sub={result.champ_ev_pct > 5 ? '🎯 VALUE' : result.champ_ev_pct < -5 ? 'Overpriced' : 'Fairly priced'}
+                />
+              )}
+            </div>
+          )}
 
           {/* Magic / elimination numbers */}
           {(result.magic_number !== null || result.elim_number !== null) && (
@@ -185,6 +251,7 @@ export default function TeamPageClient({ league, team }: Props) {
                   label="Magic Number"
                   value={String(result.magic_number)}
                   color="text-green-400"
+                  tooltip="Wins needed (by you) + losses needed (by nearest rival) to clinch a playoff spot. Hits 0 when you're in."
                 />
               )}
               {result.elim_number !== null && (
@@ -192,69 +259,9 @@ export default function TeamPageClient({ league, team }: Props) {
                   label="Elim Number"
                   value={String(result.elim_number)}
                   color="text-red-400"
+                  tooltip="Losses you can absorb before being mathematically eliminated. When this hits 0, you're out regardless of remaining games."
                 />
               )}
-            </div>
-          )}
-
-          {/* Market edge (Phase 3) — only shown when Kalshi + Sportsbook data is available */}
-          {(result.kalshi_champ_pct != null || result.sportsbook_champ_pct != null) && (
-            <div className="rounded-xl border border-surface-border bg-surface-card p-6 mb-6">
-              <h2 className="text-lg font-bold text-white mb-1">Championship Edge</h2>
-              <p className="text-xs text-gray-500 mb-4">
-                Positive EV% means the sportsbook is undervaluing this team vs Kalshi&apos;s
-                prediction market reference price.
-              </p>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-lg bg-surface-bg border border-surface-border p-4">
-                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
-                    Kalshi %
-                  </p>
-                  <p className="text-2xl font-black text-white">
-                    {result.kalshi_champ_pct != null
-                      ? result.kalshi_champ_pct.toFixed(1) + '%'
-                      : '—'}
-                  </p>
-                  <p className="text-xs text-gray-600 mt-1">Field-normalized</p>
-                </div>
-                <div className="rounded-lg bg-surface-bg border border-surface-border p-4">
-                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
-                    Book %
-                  </p>
-                  <p className="text-2xl font-black text-white">
-                    {result.sportsbook_champ_pct != null
-                      ? result.sportsbook_champ_pct.toFixed(1) + '%'
-                      : '—'}
-                  </p>
-                  <p className="text-xs text-gray-600 mt-1">De-vigged consensus</p>
-                </div>
-                <div className="rounded-lg bg-surface-bg border border-surface-border p-4">
-                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
-                    EV%
-                  </p>
-                  <p
-                    className={`text-2xl font-black ${
-                      result.champ_ev_pct == null
-                        ? 'text-gray-500'
-                        : result.champ_ev_pct > 5
-                        ? 'text-green-400'
-                        : result.champ_ev_pct < -5
-                        ? 'text-red-400'
-                        : 'text-gray-300'
-                    }`}
-                  >
-                    {result.champ_ev_pct != null
-                      ? (result.champ_ev_pct > 0 ? '+' : '') +
-                        result.champ_ev_pct.toFixed(1) + '%'
-                      : '—'}
-                  </p>
-                  {result.champ_ev_pct != null && result.champ_ev_pct > 5 && (
-                    <span className="inline-block mt-1 rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-widest bg-green-400/20 text-green-300 border border-green-400/40">
-                      VALUE
-                    </span>
-                  )}
-                </div>
-              </div>
             </div>
           )}
 

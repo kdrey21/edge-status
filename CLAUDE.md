@@ -230,24 +230,22 @@ GitHub Pages must be enabled: repo Settings → Pages → Source: **GitHub Actio
 
 ### Known Issues / TODO
 1. **H2H tiebreaker** — primary tiebreaker (MLB/NFL/NBA) not yet implemented; using div/conf record as proxy
-2. **MLB/MLS full schedule** — ESPN caps at 500 events/request; need pagination for full season
-3. **MLS schedule** — site API returns 0 upcoming games; needs different endpoint
-4. **"Most impactful games"** — per-team feature showing which upcoming games most swing playoff odds
-5. **Team position description** — natural language summary of a team's current playoff situation
-6. **Phase 5 UI** — team fan view, design refresh, mobile layout
+2. **MLS game importance** — weekly schedule means 14-day window sometimes missed matchdays; expanded to 21 days
+3. **Team position description** — natural language summary of a team's current playoff situation
 
 ---
 
 ## Upcoming Work (in priority order)
 
-1. **Fix MLB/MLS schedule pagination** — paginate ESPN scoreboard across multiple date ranges
-2. **Most impactful games** — for each upcoming game, measure swing in playoff_pct; surface top games
-3. **H2H tiebreaker** — fetch full season game logs, build H2H matrix, use as primary tiebreaker
-4. **Phase 5 — Team fan UI** — DO THIS LAST, after data is correct:
+1. **H2H tiebreaker** — fetch full season game logs, build H2H matrix, use as primary tiebreaker
+2. **Phase 5 — Team fan UI** — DO THIS LAST, after data is correct:
    - Natural language team position card ("PHI is 1.5 GB of the wild card with 100 games left...")
-   - Most impactful upcoming games card on team page
+   - **Team history line chart** — Recharts multi-line chart on team page showing playoff_pct +
+     championship_pct trend over last 14 days (data available in sim_snapshots, just needs
+     a client-side filter-by-team + LineChart component using existing Recharts dependency)
    - Tiebreaker context when teams are close ("PHI leads ATL in H2H 4-2")
    - Design refresh (better hierarchy, mobile layout)
+   - Elim# / Magic# tooltips with plain-English explanation
    - All new data features need to be designed into the layout, not bolted on
 
 ---
