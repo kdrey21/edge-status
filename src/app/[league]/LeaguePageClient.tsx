@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { getLeague, type SimResult } from '@/types'
-import { getLeagueResults } from '@/lib/supabase'
+import { getLeagueResults, getLeagueSnapshots, type SnapPoint } from '@/lib/supabase'
 import StandingsTable from '@/components/StandingsTable'
 
 interface Props {
@@ -22,9 +22,21 @@ function LoadingRow() {
   )
 }
 
+/** Group snapshots by team, returning a Map sorted oldest→newest per team */
+function buildSnapshotMap(snaps: SnapPoint[]): Map<string, SnapPoint[]> {
+  const map = new Map<string, SnapPoint[]>()
+  for (const s of snaps) {
+    if (!map.has(s.team)) map.set(s.team, [])
+    map.get(s.team)!.push(s)
+  }
+  // Already ordered oldest→newest from Supabase query
+  return map
+}
+
 export default function LeaguePageClient({ league }: Props) {
   const config = getLeague(league)
   const [results, setResults] = useState<SimResult[]>([])
+  const [snapshots, setSnapshots] = useState<Map<string, SnapPoint[]>>(new Map())
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -32,8 +44,14 @@ export default function LeaguePageClient({ league }: Props) {
       setLoading(false)
       return
     }
-    getLeagueResults(league)
-      .then(setResults)
+    Promise.all([
+      getLeagueResults(league),
+      getLeagueSnapshots(league, 14),
+    ])
+      .then(([res, snaps]) => {
+        setResults(res)
+        setSnapshots(buildSnapshotMap(snaps))
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [league]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -57,6 +75,8 @@ export default function LeaguePageClient({ league }: Props) {
         })
       : null
 
+  const hasSimData = results.some(r => r.playoff_pct != null)
+
   return (
     <div>
       <div className="mb-8">
@@ -64,7 +84,7 @@ export default function LeaguePageClient({ league }: Props) {
           ← All Leagues
         </Link>
         <h1 className="text-4xl font-black tracking-tight text-white mt-2 mb-1">
-          {config.name} Playoff Odds
+          {config.name} {hasSimData ? 'Playoff Odds' : 'Championship Futures'}
         </h1>
         {updatedAt && <p className="text-gray-500 text-sm">Last updated {updatedAt}</p>}
       </div>
@@ -88,30 +108,37 @@ export default function LeaguePageClient({ league }: Props) {
         </div>
       ) : (
         <>
-          <div className="mb-4 grid grid-cols-3 gap-3 sm:grid-cols-6">
-            {[
-              { label: 'Green', desc: '>60% playoff' },
-              { label: 'Yellow', desc: '40–60%' },
-              { label: 'Red', desc: '<40%' },
-            ].map(({ label, desc }) => (
-              <div key={label} className="flex items-center gap-2 text-xs text-gray-500">
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    label === 'Green'
-                      ? 'bg-green-400'
-                      : label === 'Yellow'
-                      ? 'bg-yellow-400'
-                      : 'bg-red-400'
-                  }`}
-                />
-                {desc}
-              </div>
-            ))}
-          </div>
+          {hasSimData && (
+            <div className="mb-4 grid grid-cols-3 gap-3 sm:grid-cols-6">
+              {[
+                { label: 'Green', desc: '>60% playoff' },
+                { label: 'Yellow', desc: '40–60%' },
+                { label: 'Red', desc: '<40%' },
+              ].map(({ label, desc }) => (
+                <div key={label} className="flex items-center gap-2 text-xs text-gray-500">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      label === 'Green'
+                        ? 'bg-green-400'
+                        : label === 'Yellow'
+                        ? 'bg-yellow-400'
+                        : 'bg-red-400'
+                    }`}
+                  />
+                  {desc}
+                </div>
+              ))}
+            </div>
+          )}
+          {snapshots.size > 0 && (
+            <p className="text-xs text-gray-600 mb-1">
+              Sparklines show 14-day trend. ▲▼ = change vs oldest data point.
+            </p>
+          )}
           <p className="text-xs text-gray-600 mb-3">
             Click a column header to sort. Click a team to see full breakdown.
           </p>
-          <StandingsTable results={results} league={league} />
+          <StandingsTable results={results} league={league} snapshots={snapshots} />
         </>
       )}
     </div>

@@ -186,6 +186,24 @@ async function main() {
               .from('sim_results')
               .upsert(rows, { onConflict: 'team,league' })
             if (error) throw error
+
+            // Snapshot for history / sparklines (Phase 4)
+            const snapDate = new Date().toISOString().split('T')[0]
+            const snapRows = (rows as any[]).map(r => ({
+              team: r.team,
+              league: r.league,
+              snap_date: snapDate,
+              playoff_pct: r.playoff_pct,
+              div_title_pct: r.div_title_pct,
+              championship_pct: r.championship_pct,
+              kalshi_champ_pct: r.kalshi_champ_pct,
+              sportsbook_champ_pct: r.sportsbook_champ_pct,
+              champ_ev_pct: r.champ_ev_pct,
+            }))
+            const { error: snapErr } = await db
+              .from('sim_snapshots')
+              .upsert(snapRows, { onConflict: 'team,league,snap_date' })
+            if (snapErr) console.warn(`  [${league.slug.toUpperCase()}] Snapshot write failed: ${snapErr.message}`)
           }
 
           const edgeTeams = (rows as any[]).filter(r => r.champ_ev_pct != null && r.champ_ev_pct > 5)
@@ -289,6 +307,24 @@ async function main() {
           .upsert(rows, { onConflict: 'team,league' })
 
         if (error) throw error
+
+        // Snapshot for history / sparklines (Phase 4)
+        const snapDate = new Date().toISOString().split('T')[0]
+        const snapRows = rows.map(r => ({
+          team: r.team,
+          league: r.league,
+          snap_date: snapDate,
+          playoff_pct: r.playoff_pct,
+          div_title_pct: r.div_title_pct,
+          championship_pct: r.championship_pct,
+          kalshi_champ_pct: r.kalshi_champ_pct,
+          sportsbook_champ_pct: r.sportsbook_champ_pct,
+          champ_ev_pct: r.champ_ev_pct,
+        }))
+        const { error: snapErr } = await db
+          .from('sim_snapshots')
+          .upsert(snapRows, { onConflict: 'team,league,snap_date' })
+        if (snapErr) console.warn(`  [${league.slug.toUpperCase()}] Snapshot write failed: ${snapErr.message}`)
 
         const edgeTeams = rows.filter(r => r.champ_ev_pct != null && r.champ_ev_pct > 5)
         console.log(

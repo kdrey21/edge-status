@@ -33,6 +33,42 @@ export async function getTeamResult(league: string, team: string): Promise<SimRe
   return data
 }
 
+// ---------------------------------------------------------------------------
+// Snapshot history (Phase 4)
+// ---------------------------------------------------------------------------
+
+export interface SnapPoint {
+  team: string
+  snap_date: string
+  playoff_pct: number | null
+  championship_pct: number | null
+  kalshi_champ_pct: number | null
+  champ_ev_pct: number | null
+}
+
+/**
+ * Fetch the last `days` days of snapshots for a league.
+ * Returns rows sorted oldest→newest so sparklines render left-to-right.
+ */
+export async function getLeagueSnapshots(
+  league: string,
+  days = 14,
+): Promise<SnapPoint[]> {
+  const since = new Date()
+  since.setDate(since.getDate() - days)
+  const sinceStr = since.toISOString().split('T')[0]
+
+  const { data, error } = await getAnonClient()
+    .from('sim_snapshots')
+    .select('team, snap_date, playoff_pct, championship_pct, kalshi_champ_pct, champ_ev_pct')
+    .eq('league', league)
+    .gte('snap_date', sinceStr)
+    .order('snap_date', { ascending: true })
+
+  if (error || !data) return []
+  return data as SnapPoint[]
+}
+
 export async function getAllLeaguesSummary(): Promise<
   { league: string; count: number; updated_at: string; hasSim: boolean }[]
 > {
