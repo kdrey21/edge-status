@@ -232,6 +232,7 @@ GitHub Pages must be enabled: repo Settings → Pages → Source: **GitHub Actio
 1. **H2H tiebreaker** — primary tiebreaker (MLB/NFL/NBA) not yet implemented; using div/conf record as proxy
 2. **MLS game importance** — weekly schedule means 14-day window sometimes missed matchdays; expanded to 21 days
 3. **Team position description** — natural language summary of a team's current playoff situation
+4. **Team page "Upcoming Schedule" blank** — ESPN direct browser fetch fails silently (likely CORS). Fix: store upcoming schedule in Supabase during sim run (already have game data), then fetch from there. Or hide section until Phase 5 redesign.
 
 ---
 
