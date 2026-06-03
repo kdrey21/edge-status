@@ -238,15 +238,18 @@ GitHub Pages must be enabled: repo Settings → Pages → Source: **GitHub Actio
 
 ## Upcoming Work (in priority order)
 
-1. **H2H tiebreaker** — fetch full season game logs, build H2H matrix, use as primary tiebreaker
-2. **Phase 5 — Team fan UI** — DO THIS LAST, after data is correct:
-   - Natural language team position card ("PHI is 1.5 GB of the wild card with 100 games left...")
+1. **Phase 5 — Team fan UI** — DO THIS LAST, after data is correct:
    - **Team history line chart** — Recharts multi-line chart on team page showing playoff_pct +
      championship_pct trend over last 14 days (data available in sim_snapshots, just needs
      a client-side filter-by-team + LineChart component using existing Recharts dependency)
    - Tiebreaker context when teams are close ("PHI leads ATL in H2H 4-2")
+   - **Mobile UX pass** — stat card descriptions are currently always-visible inline text
+     (replaced hover tooltips which don't work on touch). Phase 5 should redesign the card
+     layout for mobile: consider collapsible info rows, bottom sheets, or a purpose-built
+     mobile card component that doesn't need the description text to be always visible.
    - Design refresh (better hierarchy, mobile layout)
-   - Elim# / Magic# tooltips with plain-English explanation
+   - Fix blank "Upcoming Schedule" section on team page (ESPN direct browser fetch fails;
+     solution is to write upcoming schedule to Supabase during sim run, read it same as other data)
    - All new data features need to be designed into the layout, not bolted on
 
 ---

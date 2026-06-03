@@ -27,24 +27,16 @@ function StatCard({
   label: string
   value: string
   color: string
+  /** Always-visible description shown below the value in small muted text. */
   tooltip?: string
   sub?: string
 }) {
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-card p-5 group relative">
-      <p className="text-xs text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-1">
-        {label}
-        {tooltip && (
-          <span className="cursor-help text-gray-600 hover:text-gray-400 transition-colors">
-            ⓘ
-            <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 rounded-lg bg-gray-900 border border-surface-border px-3 py-2 text-xs text-gray-300 leading-snug opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg">
-              {tooltip}
-            </span>
-          </span>
-        )}
-      </p>
+    <div className="rounded-xl border border-surface-border bg-surface-card p-5">
+      <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">{label}</p>
       <p className={`text-3xl font-black ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-600 mt-1">{sub}</p>}
+      {sub && <p className="text-xs text-gray-500 mt-1">{sub}</p>}
+      {tooltip && <p className="text-[10px] text-gray-600 mt-1 leading-snug">{tooltip}</p>}
     </div>
   )
 }
