@@ -43,8 +43,11 @@ function parseSummary(summary: string): { wins: number; losses: number; ties: nu
 function seasonYear(sport: string): number {
   const month = new Date().getMonth() + 1 // 1-12
   const year = new Date().getFullYear()
+  // ESPN uses the ENDING year for multi-year seasons (e.g. 2025-26 season → "2026").
+  // Seasons that start in October end the following year, so add 1 when in Oct+.
+  // Jan–Sep: current year is the ending year already (e.g. Jun 2026 → 2026 = 2025-26 season).
   if (sport === 'hockey' || sport === 'basketball') {
-    return month >= 10 ? year : year - 1
+    return month >= 10 ? year + 1 : year
   }
   return year
 }
