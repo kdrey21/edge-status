@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import type { SimResult } from '@/types'
+import type { SimResult, LeagueConfig } from '@/types'
 import type { SnapPoint } from '@/lib/supabase'
 import Sparkline from '@/components/Sparkline'
 
@@ -19,6 +19,8 @@ interface Props {
   league: string
   /** Snapshot history keyed by team abbreviation, sorted oldest→newest */
   snapshots?: Map<string, SnapPoint[]>
+  /** League config — when present, teams are grouped by conference */
+  config?: LeagueConfig
 }
 
 function pctColor(pct: number | null): string {
@@ -36,6 +38,8 @@ function evColor(ev: number): string {
 
 function fmt(n: number | null, decimals = 1): string {
   if (n == null) return '—'
+  // Cap at >99% — "100.0%" looks wrong to users even when technically accurate
+  if (n >= 99.95) return '>99%'
   return n.toFixed(decimals) + '%'
 }
 
@@ -60,25 +64,42 @@ function Delta({ now, then }: { now: number | null; then: number | null }) {
   )
 }
 
-export default function StandingsTable({ results, league, snapshots }: Props) {
-  const [sortKey, setSortKey] = useState<SortKey>('wins')
-
+export default function StandingsTable({ results, league, snapshots, config }: Props) {
   const hasMarketData = results.some(
     r => r.kalshi_champ_pct != null || r.sportsbook_champ_pct != null,
   )
   const hasSimData = results.some(r => r.playoff_pct != null)
   const hasSnapshots = snapshots != null && snapshots.size > 0
 
-  const sorted = [...results].sort((a, b) => {
-    if (sortKey === 'wins') return (b.wins ?? 0) - (a.wins ?? 0)
-    if (sortKey === 'kalshi_champ_pct')
-      return (b.kalshi_champ_pct ?? -999) - (a.kalshi_champ_pct ?? -999)
-    if (sortKey === 'sportsbook_champ_pct')
-      return (b.sportsbook_champ_pct ?? -999) - (a.sportsbook_champ_pct ?? -999)
-    if (sortKey === 'champ_ev_pct')
-      return (b.champ_ev_pct ?? -999) - (a.champ_ev_pct ?? -999)
-    return ((b[sortKey] as number) ?? -999) - ((a[sortKey] as number) ?? -999)
-  })
+  // Default sort: playoff_pct for active leagues, sportsbook odds for futures-only
+  const defaultSort: SortKey = hasSimData ? 'playoff_pct' : 'sportsbook_champ_pct'
+  const [sortKey, setSortKey] = useState<SortKey>(defaultSort)
+
+  function sortRows(rows: SimResult[]): SimResult[] {
+    return [...rows].sort((a, b) => {
+      if (sortKey === 'wins') return (b.wins ?? 0) - (a.wins ?? 0)
+      if (sortKey === 'kalshi_champ_pct')
+        return (b.kalshi_champ_pct ?? -999) - (a.kalshi_champ_pct ?? -999)
+      if (sortKey === 'sportsbook_champ_pct')
+        return (b.sportsbook_champ_pct ?? -999) - (a.sportsbook_champ_pct ?? -999)
+      if (sortKey === 'champ_ev_pct')
+        return (b.champ_ev_pct ?? -999) - (a.champ_ev_pct ?? -999)
+      return ((b[sortKey] as number) ?? -999) - ((a[sortKey] as number) ?? -999)
+    })
+  }
+
+  // Group by conference when config provides a conferenceMap
+  const conferenceGroups: Array<{ conf: string; rows: SimResult[] }> = (() => {
+    const cmap = config?.conferenceMap
+    if (!cmap) return [{ conf: '', rows: sortRows(results) }]
+
+    // Collect unique conferences in alphabetical order (AL < NL, AFC < NFC, East < West)
+    const confs = [...new Set(results.map(r => cmap[r.team] ?? 'Other'))].sort()
+    return confs.map(conf => ({
+      conf,
+      rows: sortRows(results.filter(r => (cmap[r.team] ?? 'Other') === conf)),
+    }))
+  })()
 
   const col = (
     label: string,
@@ -123,98 +144,110 @@ export default function StandingsTable({ results, league, snapshots }: Props) {
           </tr>
         </thead>
         <tbody className="divide-y divide-surface-border">
-          {sorted.map((r, i) => {
-            const snaps = snapshots?.get(r.team) ?? []
-            // Values for sparkline: use playoff_pct for in-season, kalshi_champ_pct for futures
-            const sparkVals = snaps.map(s =>
-              s.playoff_pct != null ? s.playoff_pct : s.kalshi_champ_pct,
-            )
-            // 7-day-ago value for delta indicator
-            const sevenDaysAgo = snaps.length >= 2 ? snaps[0] : null
-
-            return (
-              <tr
-                key={r.team}
-                className={`transition-colors hover:bg-surface-card/60 ${i % 2 === 0 ? 'bg-transparent' : 'bg-surface-card/20'}`}
-              >
-                <td className="px-4 py-3">
-                  <Link
-                    href={`/${league}/${r.team.toLowerCase()}`}
-                    className="font-semibold text-white hover:text-blue-400 transition-colors"
+          {conferenceGroups.map(({ conf, rows }) => (
+            <>
+              {/* Conference header row */}
+              {conf && (
+                <tr key={`hdr-${conf}`} className="bg-surface-card/40">
+                  <td
+                    colSpan={99}
+                    className="px-4 py-2 text-xs font-bold uppercase tracking-widest text-gray-400"
                   >
-                    {r.team}
-                  </Link>
-                </td>
+                    {conf}
+                  </td>
+                </tr>
+              )}
 
-                {hasSimData && (
-                  <>
-                    <td className="px-4 py-3 text-right text-gray-300 font-mono">{r.wins ?? '—'}</td>
-                    <td className="px-4 py-3 text-right text-gray-300 font-mono">{r.losses ?? '—'}</td>
-                    <td className="px-4 py-3 text-right text-gray-400 font-mono">
-                      {r.games_back != null
-                        ? r.games_back === 0 ? '—' : r.games_back.toFixed(1)
-                        : '—'}
-                    </td>
+              {rows.map((r, i) => {
+                const snaps = snapshots?.get(r.team) ?? []
+                const sparkVals = snaps.map(s =>
+                  s.playoff_pct != null ? s.playoff_pct : s.kalshi_champ_pct,
+                )
+                const sevenDaysAgo = snaps.length >= 2 ? snaps[0] : null
 
-                    {/* Playoff % with sparkline + delta */}
-                    <td className={`px-4 py-3 text-right font-bold text-base ${pctColor(r.playoff_pct)}`}>
-                      <div className="flex items-center justify-end gap-1.5">
-                        {hasSnapshots && sparkVals.length >= 2 && (
-                          <Sparkline values={sparkVals} />
-                        )}
-                        <span>{fmt(r.playoff_pct)}</span>
-                        {hasSnapshots && (
-                          <Delta
-                            now={r.playoff_pct}
-                            then={sevenDaysAgo?.playoff_pct ?? null}
-                          />
-                        )}
-                      </div>
+                return (
+                  <tr
+                    key={r.team}
+                    className={`transition-colors hover:bg-surface-card/60 ${i % 2 === 0 ? 'bg-transparent' : 'bg-surface-card/20'}`}
+                  >
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/${league}/${r.team.toLowerCase()}`}
+                        className="font-semibold text-white hover:text-blue-400 transition-colors"
+                      >
+                        {r.team}
+                      </Link>
                     </td>
 
-                    <td className={`px-4 py-3 text-right font-bold ${pctColor(r.championship_pct)}`}>
-                      {fmt(r.championship_pct)}
-                    </td>
-                  </>
-                )}
+                    {hasSimData && (
+                      <>
+                        <td className="px-4 py-3 text-right text-gray-300 font-mono">{r.wins ?? '—'}</td>
+                        <td className="px-4 py-3 text-right text-gray-300 font-mono">{r.losses ?? '—'}</td>
+                        <td className="px-4 py-3 text-right text-gray-400 font-mono">
+                          {r.games_back != null
+                            ? r.games_back === 0 ? '—' : r.games_back.toFixed(1)
+                            : '—'}
+                        </td>
 
-                {hasMarketData && (
-                  <>
-                    <td className="px-4 py-3 text-right text-gray-300 font-mono">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {/* Sparkline for futures-only mode (no sim data) */}
-                        {!hasSimData && hasSnapshots && sparkVals.length >= 2 && (
-                          <Sparkline values={sparkVals} />
-                        )}
-                        <span>{fmt(r.kalshi_champ_pct)}</span>
-                        {!hasSimData && hasSnapshots && (
-                          <Delta
-                            now={r.kalshi_champ_pct}
-                            then={sevenDaysAgo?.kalshi_champ_pct ?? null}
-                          />
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right text-gray-300 font-mono">
-                      {fmt(r.sportsbook_champ_pct)}
-                    </td>
-                    <td
-                      className={`px-4 py-3 text-right font-bold ${
-                        r.champ_ev_pct != null ? evColor(r.champ_ev_pct) : 'text-gray-600'
-                      }`}
-                    >
-                      <span>{fmtEv(r.champ_ev_pct)}</span>
-                      {r.champ_ev_pct != null && r.champ_ev_pct > 5 && (
-                        <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-widest bg-green-400/20 text-green-300 border border-green-400/40">
-                          VALUE
-                        </span>
-                      )}
-                    </td>
-                  </>
-                )}
-              </tr>
-            )
-          })}
+                        <td className={`px-4 py-3 text-right font-bold text-base ${pctColor(r.playoff_pct)}`}>
+                          <div className="flex items-center justify-end gap-1.5">
+                            {hasSnapshots && sparkVals.length >= 2 && (
+                              <Sparkline values={sparkVals} />
+                            )}
+                            <span>{fmt(r.playoff_pct)}</span>
+                            {hasSnapshots && (
+                              <Delta
+                                now={r.playoff_pct}
+                                then={sevenDaysAgo?.playoff_pct ?? null}
+                              />
+                            )}
+                          </div>
+                        </td>
+
+                        <td className={`px-4 py-3 text-right font-bold ${pctColor(r.championship_pct)}`}>
+                          {fmt(r.championship_pct)}
+                        </td>
+                      </>
+                    )}
+
+                    {hasMarketData && (
+                      <>
+                        <td className="px-4 py-3 text-right text-gray-300 font-mono">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {!hasSimData && hasSnapshots && sparkVals.length >= 2 && (
+                              <Sparkline values={sparkVals} />
+                            )}
+                            <span>{fmt(r.kalshi_champ_pct)}</span>
+                            {!hasSimData && hasSnapshots && (
+                              <Delta
+                                now={r.kalshi_champ_pct}
+                                then={sevenDaysAgo?.kalshi_champ_pct ?? null}
+                              />
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right text-gray-300 font-mono">
+                          {fmt(r.sportsbook_champ_pct)}
+                        </td>
+                        <td
+                          className={`px-4 py-3 text-right font-bold ${
+                            r.champ_ev_pct != null ? evColor(r.champ_ev_pct) : 'text-gray-600'
+                          }`}
+                        >
+                          <span>{fmtEv(r.champ_ev_pct)}</span>
+                          {r.champ_ev_pct != null && r.champ_ev_pct > 5 && (
+                            <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-widest bg-green-400/20 text-green-300 border border-green-400/40">
+                              VALUE
+                            </span>
+                          )}
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                )
+              })}
+            </>
+          ))}
         </tbody>
       </table>
     </div>

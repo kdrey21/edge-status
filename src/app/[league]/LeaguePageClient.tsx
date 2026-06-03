@@ -142,7 +142,7 @@ export default function LeaguePageClient({ league }: Props) {
           <p className="text-xs text-gray-600 mb-3">
             Click a column header to sort. Click a team to see full breakdown.
           </p>
-          <StandingsTable results={results} league={league} snapshots={snapshots} />
+          <StandingsTable results={results} league={league} snapshots={snapshots} config={config} />
           {importantGames.length > 0 && (
             <div className="mt-6">
               <ImportantGames games={importantGames} />
