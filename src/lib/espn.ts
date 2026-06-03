@@ -223,13 +223,16 @@ async function fetchGroupStandings(
       if (!teamId) continue
 
       const meta = teamMap.get(teamId)
-      const record = standing.records?.[0]
-      const { wins, losses, ties: summaryTies } = record?.summary
-        ? parseSummary(record.summary)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const records: any[] = standing.records ?? []
+      const overallRecord = records[0]
+
+      const { wins, losses, ties: summaryTies } = overallRecord?.summary
+        ? parseSummary(overallRecord.summary)
         : { wins: 0, losses: 0, ties: 0 }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const statsArr: any[] = record?.stats ?? []
+      const statsArr: any[] = overallRecord?.stats ?? []
       // OTL for hockey; draws come from parseSummary for soccer
       const otl = statsArr.find((s: { name: string }) => s.name === 'OTLosses')?.value ?? 0
       const ties = summaryTies || Math.round(otl)
@@ -242,6 +245,24 @@ async function fetchGroupStandings(
       const winPct = gamesPlayed > 0 ? effectiveWins / gamesPlayed : 0
       const elo = 1500 + (winPct - 0.5) * 400
 
+      // Extract tiebreaker records from ESPN breakdown records.
+      // ESPN names vary by sport: "vs. Div." / "Intradivision" for division;
+      // "vs. Conf." / "Intraleague" for conference.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const findRecord = (keywords: string[]): { wins: number; losses: number } => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const r = records.find((rec: any) => {
+          const n = (rec.name ?? '').toLowerCase()
+          return keywords.some(k => n.includes(k))
+        })
+        if (!r?.summary) return { wins: 0, losses: 0 }
+        const parsed = parseSummary(r.summary)
+        return { wins: parsed.wins, losses: parsed.losses }
+      }
+
+      const divRec  = findRecord(['vs. div', 'intradiv', 'division standing'])
+      const confRec = findRecord(['vs. conf', 'intraleague', 'league'])
+
       teams.push({
         id: teamId,
         name: meta?.name ?? `Team ${teamId}`,
@@ -251,11 +272,15 @@ async function fetchGroupStandings(
         losses,
         ties,
         winPct,
-        gamesBack: 0, // Phase 3: compute from leader's record
+        gamesBack: 0,
         division: groupName,
         conference: inferConference(groupName, sport),
         elo,
         gamesRemaining,
+        divisionWins: divRec.wins,
+        divisionLosses: divRec.losses,
+        conferenceWins: confRec.wins,
+        conferenceLosses: confRec.losses,
       })
     }
     return teams

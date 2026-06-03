@@ -36,6 +36,11 @@ export interface LeagueTeam {
   conference: string
   elo: number
   gamesRemaining: number
+  // Tiebreaker records — extracted from ESPN standings breakdown
+  divisionWins: number
+  divisionLosses: number
+  conferenceWins: number
+  conferenceLosses: number
 }
 
 export interface Game {

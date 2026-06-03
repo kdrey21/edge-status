@@ -42,13 +42,22 @@ interface SimState {
   wins: number[]
   losses: number[]
   elos: number[]
+  // Tiebreaker records — updated as games are simulated
+  divWins: number[]
+  divLosses: number[]
+  confWins: number[]
+  confLosses: number[]
 }
 
 function cloneState(teams: LeagueTeam[]): SimState {
   return {
-    wins: teams.map(t => t.wins),
-    losses: teams.map(t => t.losses),
-    elos: teams.map(t => t.elo),
+    wins:        teams.map(t => t.wins),
+    losses:      teams.map(t => t.losses),
+    elos:        teams.map(t => t.elo),
+    divWins:     teams.map(t => t.divisionWins),
+    divLosses:   teams.map(t => t.divisionLosses),
+    confWins:    teams.map(t => t.conferenceWins),
+    confLosses:  teams.map(t => t.conferenceLosses),
   }
 }
 
@@ -56,11 +65,36 @@ function winPct(state: SimState, i: number): number {
   return state.wins[i] / Math.max(1, state.wins[i] + state.losses[i])
 }
 
-/** Sort indices descending by win%, breaking ties by total wins */
+/**
+ * Sort team indices descending by record using sport-standard tiebreaker chain:
+ *   1. Overall win%
+ *   2. Division win% (games vs same-division opponents)
+ *   3. Conference win% (games vs same-conference opponents)
+ *   4. Total wins (final fallback)
+ *
+ * Note: true H2H tiebreaking (primary in MLB/NFL/NBA rules) requires full
+ * season game logs and is tracked as a future improvement.
+ */
 function sortByRecord(idxs: number[], state: SimState): number[] {
-  return [...idxs].sort(
-    (a, b) => winPct(state, b) - winPct(state, a) || state.wins[b] - state.wins[a],
-  )
+  return [...idxs].sort((a, b) => {
+    const wpDiff = winPct(state, b) - winPct(state, a)
+    if (Math.abs(wpDiff) > 1e-9) return wpDiff
+
+    // Division record tiebreaker
+    const divWpA = state.divWins[a] / Math.max(1, state.divWins[a] + state.divLosses[a])
+    const divWpB = state.divWins[b] / Math.max(1, state.divWins[b] + state.divLosses[b])
+    const divDiff = divWpB - divWpA
+    if (Math.abs(divDiff) > 1e-9) return divDiff
+
+    // Conference record tiebreaker
+    const confWpA = state.confWins[a] / Math.max(1, state.confWins[a] + state.confLosses[a])
+    const confWpB = state.confWins[b] / Math.max(1, state.confWins[b] + state.confLosses[b])
+    const confDiff = confWpB - confWpA
+    if (Math.abs(confDiff) > 1e-9) return confDiff
+
+    // Final: total wins
+    return state.wins[b] - state.wins[a]
+  })
 }
 
 /** Group team indices by their division field */
@@ -283,18 +317,34 @@ function simulateStandardBracket(seeds: number[], state: SimState, bestOf = 7): 
 // Schedule builder
 // ---------------------------------------------------------------------------
 
+interface ScheduledGame {
+  homeIdx: number
+  awayIdx: number
+  /** Both teams in same division — result counts toward division tiebreaker */
+  isDivisionGame: boolean
+  /** Both teams in same conference — result counts toward conference tiebreaker */
+  isConferenceGame: boolean
+}
+
 function buildRemainingSchedule(
   teams: LeagueTeam[],
   espnGames: Game[],
-): Array<[number, number]> {
+): ScheduledGame[] {
   const idToIdx = new Map(teams.map((t, i) => [t.id, i]))
-  const pairs: Array<[number, number]> = []
+  const games: ScheduledGame[] = []
   for (const g of espnGames.filter(g => !g.completed)) {
     const hi = idToIdx.get(g.homeTeamId)
     const ai = idToIdx.get(g.awayTeamId)
-    if (hi !== undefined && ai !== undefined) pairs.push([hi, ai])
+    if (hi !== undefined && ai !== undefined) {
+      games.push({
+        homeIdx: hi,
+        awayIdx: ai,
+        isDivisionGame: teams[hi].division === teams[ai].division,
+        isConferenceGame: teams[hi].conference === teams[ai].conference,
+      })
+    }
   }
-  return pairs
+  return games
 }
 
 // ---------------------------------------------------------------------------
@@ -348,12 +398,17 @@ export function runSimulation(
     const state = cloneState(teams)
 
     // ── Simulate remaining regular season ──
-    for (const [homeIdx, awayIdx] of schedule) {
+    for (const game of schedule) {
+      const { homeIdx, awayIdx, isDivisionGame, isConferenceGame } = game
       const p = winProb(state.elos[homeIdx] + HOME_ELO_ADV, state.elos[awayIdx])
       if (Math.random() < p) {
         state.wins[homeIdx]++; state.losses[awayIdx]++
+        if (isDivisionGame)  { state.divWins[homeIdx]++;  state.divLosses[awayIdx]++ }
+        if (isConferenceGame){ state.confWins[homeIdx]++; state.confLosses[awayIdx]++ }
       } else {
         state.wins[awayIdx]++; state.losses[homeIdx]++
+        if (isDivisionGame)  { state.divWins[awayIdx]++;  state.divLosses[homeIdx]++ }
+        if (isConferenceGame){ state.confWins[awayIdx]++; state.confLosses[homeIdx]++ }
       }
     }
 
