@@ -460,6 +460,120 @@ export async function fetchUpcomingGames(espnPath: string): Promise<Game[]> {
   }
 }
 
+/**
+ * Fetch all completed regular-season games from the start of the current season
+ * through yesterday. Used to build head-to-head win matrices for tiebreaker logic.
+ *
+ * Season-start heuristics:
+ *   basketball / hockey  — Oct 1 of the prior calendar year (multi-year season)
+ *   baseball             — Mar 20 of the current year (~Opening Day)
+ *   football             — Sep 1 of the current year
+ *   soccer (MLS)         — Feb 1 of the current year; uses calendar-driven fetch
+ */
+export async function fetchCompletedGames(espnPath: string): Promise<Game[]> {
+  const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '')
+  const today = new Date()
+  const sport = espnPath.split('/')[0]
+  const year = today.getFullYear()
+
+  // Season-start date per sport
+  let seasonStart: Date
+  if (sport === 'hockey' || sport === 'basketball') {
+    seasonStart = new Date(year - 1, 9, 1) // Oct 1 previous year
+  } else if (sport === 'baseball') {
+    seasonStart = new Date(year, 2, 20)    // Mar 20
+  } else if (sport === 'football') {
+    seasonStart = new Date(year, 8, 1)     // Sep 1
+  } else {
+    seasonStart = new Date(year, 1, 1)     // Feb 1 (soccer/MLS)
+  }
+
+  // Nothing to fetch if season hasn't started yet
+  if (seasonStart >= today) return []
+
+  // Yesterday (last completed day)
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+
+  // ── MLS: calendar-driven fetch for past dates ───────────────────────────
+  if (sport === 'soccer') {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const calData = (await espnFetch(`${ESPN_SITE}/${espnPath}/scoreboard`)) as any
+      const calendar: string[] = calData.leagues?.[0]?.calendar ?? []
+      const pastDates = calendar
+        .filter(d => {
+          const dt = new Date(d)
+          return dt < today && dt >= seasonStart
+        })
+        .map(d => fmt(new Date(d)))
+      const uniqueDates = [...new Set(pastDates)]
+
+      if (uniqueDates.length === 0) return []
+
+      const results = await Promise.all(
+        uniqueDates.map(d =>
+          espnFetch(`${ESPN_SITE}/${espnPath}/scoreboard?dates=${d}&limit=50`)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .then(data => parseScoreboardGames(data as any).filter(g => g.completed))
+            .catch(() => [] as Game[]),
+        ),
+      )
+
+      const seen = new Set<string>()
+      const games: Game[] = []
+      for (const chunk of results) {
+        for (const g of chunk) {
+          const key = `${g.homeTeamId}-${g.awayTeamId}-${g.date.slice(0, 10)}`
+          if (!seen.has(key)) { seen.add(key); games.push(g) }
+        }
+      }
+      return games
+    } catch {
+      return []
+    }
+  }
+
+  // ── All other sports: paginated date-range chunks ────────────────────────
+  const chunkDays = sport === 'baseball' ? 55 : 60
+  const chunks: Array<[string, string]> = []
+
+  let start = new Date(seasonStart)
+  while (start <= yesterday) {
+    const end = new Date(start)
+    end.setDate(end.getDate() + chunkDays - 1)
+    const effectiveEnd = end <= yesterday ? end : yesterday
+    chunks.push([fmt(start), fmt(effectiveEnd)])
+    start = new Date(effectiveEnd)
+    start.setDate(start.getDate() + 1)
+  }
+
+  if (chunks.length === 0) return []
+
+  try {
+    const results = await Promise.all(
+      chunks.map(([s, e]) =>
+        espnFetch(`${ESPN_SITE}/${espnPath}/scoreboard?dates=${s}-${e}&limit=500`)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .then(data => parseScoreboardGames(data as any).filter(g => g.completed))
+          .catch(() => [] as Game[]),
+      ),
+    )
+
+    const seen = new Set<string>()
+    const games: Game[] = []
+    for (const chunk of results) {
+      for (const g of chunk) {
+        const key = `${g.homeTeamId}-${g.awayTeamId}-${g.date.slice(0, 10)}`
+        if (!seen.has(key)) { seen.add(key); games.push(g) }
+      }
+    }
+    return games
+  } catch {
+    return []
+  }
+}
+
 export function isLeagueActive(teams: LeagueTeam[]): boolean {
   if (teams.length < 4) return false
   return teams.some(t => t.wins + t.losses + t.ties > 0)

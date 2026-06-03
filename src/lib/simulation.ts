@@ -100,17 +100,33 @@ function winPct(state: SimState, i: number): number {
 /**
  * Sort team indices descending by record using sport-standard tiebreaker chain:
  *   1. Overall win%
- *   2. Division win% (games vs same-division opponents)
- *   3. Conference win% (games vs same-conference opponents)
- *   4. Total wins (final fallback)
+ *   2. H2H record (actual season results — only meaningful for 2-team ties)
+ *   3. Division win%
+ *   4. Conference win%
+ *   5. Total wins (final fallback)
  *
- * Note: true H2H tiebreaking (primary in MLB/NFL/NBA rules) requires full
- * season game logs and is tracked as a future improvement.
+ * H2H is the primary tiebreaker in MLB, NFL, and NBA rules. We use actual
+ * completed-game results (not simulated) since that mirrors how the real
+ * standings determine tiebreakers. For 3-way ties the H2H step is applied
+ * pairwise, which is a simplification of the full circular-H2H resolution.
  */
-function sortByRecord(idxs: number[], state: SimState): number[] {
+function sortByRecord(
+  idxs: number[],
+  state: SimState,
+  teamIds?: string[],
+  h2hMatrix?: H2HMatrix,
+): number[] {
   return [...idxs].sort((a, b) => {
     const wpDiff = winPct(state, b) - winPct(state, a)
     if (Math.abs(wpDiff) > 1e-9) return wpDiff
+
+    // H2H tiebreaker (actual season results)
+    if (h2hMatrix && teamIds) {
+      const winsAoverB = h2hMatrix.get(teamIds[a])?.get(teamIds[b]) ?? 0
+      const winsBoverA = h2hMatrix.get(teamIds[b])?.get(teamIds[a]) ?? 0
+      const h2diff = winsBoverA - winsAoverB // negative if A has more wins → a first
+      if (h2diff !== 0) return h2diff
+    }
 
     // Division record tiebreaker
     const divWpA = state.divWins[a] / Math.max(1, state.divWins[a] + state.divLosses[a])
@@ -186,7 +202,12 @@ function getPlayoffSeeds(
   confIdxs: number[],
   teams: LeagueTeam[],
   state: SimState,
+  teamIds?: string[],
+  h2hMatrix?: H2HMatrix,
 ): number[] {
+  // Convenience wrapper so every sortByRecord call carries H2H context
+  const sort = (idxs: number[]) => sortByRecord(idxs, state, teamIds, h2hMatrix)
+
   if (sport === 'baseball' || sport === 'football') {
     const nDivWinners = sport === 'baseball' ? 3 : 4
     const nWildCards = sport === 'baseball' ? 3 : 3
@@ -195,17 +216,14 @@ function getPlayoffSeeds(
     const divGroups = groupByDivision(confIdxs, teams)
     const divWinners: number[] = []
     for (const [, idxs] of divGroups) {
-      divWinners.push(sortByRecord(idxs, state)[0])
+      divWinners.push(sort(idxs)[0])
     }
     // Sort division winners by record (seed 1 = best)
-    const sortedDivWinners = sortByRecord(divWinners, state).slice(0, nDivWinners)
+    const sortedDivWinners = sort(divWinners).slice(0, nDivWinners)
 
     // Wild cards: best records among non-division-winners
     const divWinnerSet = new Set(sortedDivWinners)
-    const rest = sortByRecord(
-      confIdxs.filter(i => !divWinnerSet.has(i)),
-      state,
-    )
+    const rest = sort(confIdxs.filter(i => !divWinnerSet.has(i)))
     const wildCards = rest.slice(0, nWildCards)
 
     return [...sortedDivWinners, ...wildCards]
@@ -218,33 +236,32 @@ function getPlayoffSeeds(
     const divRest: number[] = []
 
     for (const [, idxs] of divGroups) {
-      const sorted = sortByRecord(idxs, state)
+      const sorted = sort(idxs)
       divTop3.push(...sorted.slice(0, 3))
       divRest.push(...sorted.slice(3))
     }
 
     // Div winners = best in each division (for seeding priority)
-    const divWinners = [...divGroups.values()]
-      .map(idxs => sortByRecord(idxs, state)[0])
+    const divWinners = [...divGroups.values()].map(idxs => sort(idxs)[0])
     const divWinnerSet = new Set(divWinners)
-    const sortedDivWinners = sortByRecord(divWinners, state)
+    const sortedDivWinners = sort(divWinners)
 
     // Non-winner div qualifiers (2nd/3rd in each division)
-    const divNonWinners = sortByRecord(divTop3.filter(i => !divWinnerSet.has(i)), state)
+    const divNonWinners = sort(divTop3.filter(i => !divWinnerSet.has(i)))
 
     // Wild cards: best records from the rest of the conference
-    const wildCards = sortByRecord(divRest, state).slice(0, 2)
+    const wildCards = sort(divRest).slice(0, 2)
 
     return [...sortedDivWinners, ...divNonWinners, ...wildCards]
   }
 
   if (sport === 'basketball') {
     // NBA: top 10 returned (6 guaranteed + 4 play-in candidates)
-    return sortByRecord(confIdxs, state).slice(0, 10)
+    return sort(confIdxs).slice(0, 10)
   }
 
   // Default / soccer: top N by record
-  return sortByRecord(confIdxs, state)
+  return sort(confIdxs)
 }
 
 // ---------------------------------------------------------------------------
@@ -382,6 +399,36 @@ function buildRemainingSchedule(
 }
 
 // ---------------------------------------------------------------------------
+// Head-to-head matrix
+// ---------------------------------------------------------------------------
+
+/**
+ * Actual season H2H win counts: winnerTeamId → loserTeamId → number of wins.
+ * Built from completed regular-season games before the sim runs.
+ * Used as the first tiebreaker in sortByRecord (mirrors real league rules).
+ */
+export type H2HMatrix = Map<string, Map<string, number>>
+
+/**
+ * Build an H2H win matrix from completed games.
+ * Requires homeScore/awayScore to be set (parseScoreboardGames fills these
+ * for completed events).
+ */
+export function buildH2HMatrix(completedGames: Game[]): H2HMatrix {
+  const matrix: H2HMatrix = new Map()
+  for (const g of completedGames) {
+    if (!g.completed || g.homeScore === undefined || g.awayScore === undefined) continue
+    if (g.homeScore === g.awayScore) continue // ties/draws — skip (no H2H winner)
+    const winnerId = g.homeScore > g.awayScore ? g.homeTeamId : g.awayTeamId
+    const loserId  = g.homeScore > g.awayScore ? g.awayTeamId : g.homeTeamId
+    if (!matrix.has(winnerId)) matrix.set(winnerId, new Map())
+    const m = matrix.get(winnerId)!
+    m.set(loserId, (m.get(loserId) ?? 0) + 1)
+  }
+  return matrix
+}
+
+// ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
@@ -413,9 +460,13 @@ export function runSimulation(
   playoffPerConf: number,
   sport: string,
   trackedGameInputs: TrackedGameInput[] = [],
+  h2hMatrix?: H2HMatrix,
 ): SimOutput {
   const n = teams.length
   if (n === 0) return { results: [], gameImportance: [] }
+
+  // Team ID array (indexed same as teams[]) — used for H2H lookups in sortByRecord
+  const teamIds = teams.map(t => t.id)
 
   const schedule = buildRemainingSchedule(teams, espnGames)
 
@@ -522,7 +573,7 @@ export function runSimulation(
     const simPlayoffSet = new Set<number>() // all teams that made playoffs this sim
 
     for (const [, confIdxs] of confMap) {
-      const seeds = getPlayoffSeeds(sport, confIdxs, teams, state)
+      const seeds = getPlayoffSeeds(sport, confIdxs, teams, state, teamIds, h2hMatrix)
 
       if (sport === 'basketball') {
         // NBA: seeds 1-6 guaranteed; play-in for 7-10

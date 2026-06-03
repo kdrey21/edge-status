@@ -15,8 +15,8 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { LEAGUES } from '@/types'
-import { fetchStandings, fetchUpcomingGames, isLeagueActive, fetchPlayoffAliveTeamIds } from '@/lib/espn'
-import { runSimulation, type TrackedGameInput } from '@/lib/simulation'
+import { fetchStandings, fetchUpcomingGames, fetchCompletedGames, isLeagueActive, fetchPlayoffAliveTeamIds } from '@/lib/espn'
+import { runSimulation, buildH2HMatrix, type TrackedGameInput } from '@/lib/simulation'
 import { fetchSportsbookChampionshipOdds } from '@/lib/odds'
 import { fetchKalshiChampionshipOdds } from '@/lib/kalshi'
 
@@ -86,10 +86,16 @@ async function main() {
       try {
         console.log(`  [${league.slug.toUpperCase()}] Fetching standings…`)
 
-        const [teams, espnGames] = await Promise.all([
+        const [teams, espnGames, completedGames] = await Promise.all([
           fetchStandings(league.espnPath, league.totalGames, league.coreLeague, league.coreSeasonType),
           fetchUpcomingGames(league.espnPath),
+          fetchCompletedGames(league.espnPath),
         ])
+
+        const h2hMatrix = buildH2HMatrix(completedGames)
+        console.log(
+          `  [${league.slug.toUpperCase()}] H2H matrix: ${completedGames.length} completed games → ${h2hMatrix.size} teams with wins`,
+        )
 
         if (!isLeagueActive(teams)) {
           // Off-season: skip simulation, but still fetch market futures if configured
@@ -245,6 +251,7 @@ async function main() {
           league.playoffTeamsPerConference,
           league.sport,
           trackedGames,
+          h2hMatrix,
         )
 
         // -------------------------------------------------------------------
