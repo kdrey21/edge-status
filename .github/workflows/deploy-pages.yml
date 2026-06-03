@@ -42,6 +42,13 @@ jobs:
           EDGE_STATUS_ENV: ${{ secrets.EDGE_STATUS_ENV }}
         run: printf '%s\n' "$EDGE_STATUS_ENV" > .env
 
+      - name: Debug .env
+        run: |
+          echo "File size: $(wc -c < .env) bytes"
+          echo "Line count: $(wc -l < .env)"
+          echo "Keys found:"
+          grep -o '^[^=]*' .env || echo "(none)"
+
       - name: Build (next export)
         run: npm run build
 
