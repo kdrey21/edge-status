@@ -328,40 +328,136 @@ export async function fetchStandings(
   return allTeams
 }
 
-export async function fetchUpcomingGames(espnPath: string): Promise<Game[]> {
+/** Parse games out of an ESPN scoreboard response */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseScoreboardGames(data: any): Game[] {
   const games: Game[] = []
+  for (const event of data.events ?? []) {
+    const comp = event.competitions?.[0]
+    if (!comp) continue
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const home = (comp.competitors as any[])?.find((c: any) => c.homeAway === 'home')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const away = (comp.competitors as any[])?.find((c: any) => c.homeAway === 'away')
+    if (!home?.team?.id || !away?.team?.id) continue
+    const completed = Boolean(event.status?.type?.completed)
+    games.push({
+      homeTeamId: String(home.team.id),
+      awayTeamId: String(away.team.id),
+      date: event.date,
+      completed,
+      homeScore: completed ? parseInt(home.score, 10) : undefined,
+      awayScore: completed ? parseInt(away.score, 10) : undefined,
+    })
+  }
+  return games
+}
+
+/**
+ * Fetch all upcoming (and recent) games for a league.
+ *
+ * - NBA/NHL/NFL: 45-day window, single request (few games, no pagination needed)
+ * - MLB (baseball): full season through October, paginated in 55-day chunks
+ * - MLS (soccer): uses the league calendar to find actual matchday dates,
+ *   then fetches each matchday — ESPN's date-range query returns nothing for
+ *   MLS on non-matchday dates
+ */
+export async function fetchUpcomingGames(espnPath: string): Promise<Game[]> {
+  const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '')
+  const today = new Date()
+  const sport = espnPath.split('/')[0]
+
+  // ── MLS: calendar-driven fetch ──────────────────────────────────────────
+  if (sport === 'soccer') {
+    try {
+      // 1. Fetch league calendar to get actual matchday dates
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const calData = (await espnFetch(`${ESPN_SITE}/${espnPath}/scoreboard`)) as any
+      const calendar: string[] = calData.leagues?.[0]?.calendar ?? []
+      const futureDates = calendar
+        .filter(d => new Date(d) > today)
+        .map(d => fmt(new Date(d)))
+      // Deduplicate (calendar may have same date for multiple kickoffs)
+      const uniqueDates = [...new Set(futureDates)]
+
+      if (uniqueDates.length === 0) return []
+
+      // 2. Fetch each matchday in parallel (ESPN only returns games for exact dates)
+      const results = await Promise.all(
+        uniqueDates.map(d =>
+          espnFetch(`${ESPN_SITE}/${espnPath}/scoreboard?dates=${d}&limit=50`)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .then(data => parseScoreboardGames(data as any))
+            .catch(() => [] as Game[]),
+        ),
+      )
+
+      const seen = new Set<string>()
+      const games: Game[] = []
+      for (const chunk of results) {
+        for (const g of chunk) {
+          const key = `${g.homeTeamId}-${g.awayTeamId}-${g.date.slice(0, 10)}`
+          if (!seen.has(key)) { seen.add(key); games.push(g) }
+        }
+      }
+      return games
+    } catch {
+      return []
+    }
+  }
+
+  // ── MLB (baseball): paginated 55-day chunks through end of season ────────
+  if (sport === 'baseball') {
+    try {
+      const seasonEnd = new Date(today.getFullYear(), 9, 5) // ~Oct 5
+      const chunkDays = 55
+      const chunks: Array<[string, string]> = []
+
+      let start = new Date(today)
+      while (start < seasonEnd) {
+        const end = new Date(start)
+        end.setDate(end.getDate() + chunkDays - 1)
+        const effectiveEnd = end < seasonEnd ? end : seasonEnd
+        chunks.push([fmt(start), fmt(effectiveEnd)])
+        start = new Date(effectiveEnd)
+        start.setDate(start.getDate() + 1)
+      }
+
+      const results = await Promise.all(
+        chunks.map(([s, e]) =>
+          espnFetch(`${ESPN_SITE}/${espnPath}/scoreboard?dates=${s}-${e}&limit=500`)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .then(data => parseScoreboardGames(data as any))
+            .catch(() => [] as Game[]),
+        ),
+      )
+
+      const seen = new Set<string>()
+      const games: Game[] = []
+      for (const chunk of results) {
+        for (const g of chunk) {
+          const key = `${g.homeTeamId}-${g.awayTeamId}-${g.date.slice(0, 10)}`
+          if (!seen.has(key)) { seen.add(key); games.push(g) }
+        }
+      }
+      return games
+    } catch {
+      return []
+    }
+  }
+
+  // ── Default: single 45-day window (NBA, NHL, NFL, etc.) ─────────────────
   try {
-    const today = new Date()
     const end = new Date(today)
-    end.setDate(end.getDate() + 30)
-    const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '')
+    end.setDate(end.getDate() + 45)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = (await espnFetch(
       `${ESPN_SITE}/${espnPath}/scoreboard?dates=${fmt(today)}-${fmt(end)}&limit=500`,
     )) as any
-
-    for (const event of data.events ?? []) {
-      const comp = event.competitions?.[0]
-      if (!comp) continue
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const home = (comp.competitors as any[])?.find((c: any) => c.homeAway === 'home')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const away = (comp.competitors as any[])?.find((c: any) => c.homeAway === 'away')
-      if (!home || !away) continue
-      const completed = Boolean(event.status?.type?.completed)
-      games.push({
-        homeTeamId: String(home.team.id),
-        awayTeamId: String(away.team.id),
-        date: event.date,
-        completed,
-        homeScore: completed ? parseInt(home.score, 10) : undefined,
-        awayScore: completed ? parseInt(away.score, 10) : undefined,
-      })
-    }
+    return parseScoreboardGames(data)
   } catch {
-    // Fail gracefully
+    return []
   }
-  return games
 }
 
 export function isLeagueActive(teams: LeagueTeam[]): boolean {
