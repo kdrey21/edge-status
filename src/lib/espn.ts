@@ -131,7 +131,10 @@ async function buildTeamMap(
   return map
 }
 
-// Get all division/conference group IDs for a league+season
+// Get all division group IDs for a league+season.
+// ESPN structures some leagues as conferences → divisions (children).
+// e.g. NBA: groups = [East, West]; each has children [Atlantic, Central, Southeast, ...]
+// We always want the leaf-level division groups for accurate div_title_pct tracking.
 async function fetchGroupIds(
   sport: string,
   league: string,
@@ -143,10 +146,37 @@ async function fetchGroupIds(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = (await espnFetch(url)) as any
     const items: unknown[] = data.items ?? []
-    return items
+    const topIds = items
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .map(item => refId((item as any).$ref ?? '', 'groups'))
       .filter((id): id is string => id !== null)
+
+    // For each top-level group, check if it's a conference wrapper with children.
+    // If so, collect the children (actual divisions) instead.
+    const divisionIds: string[] = []
+    await Promise.all(
+      topIds.map(async gid => {
+        try {
+          const groupUrl = `${ESPN_CORE}/${sport}/leagues/${league}/seasons/${season}/types/${seasonType}/groups/${gid}`
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const g = (await espnFetch(groupUrl)) as any
+          if (g.isConference && g.children?.$ref) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const childData = (await espnFetch(g.children.$ref)) as any
+            const childIds = (childData.items ?? [])
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              .map((item: any) => refId(item.$ref ?? '', 'groups'))
+              .filter((id: string | null): id is string => id !== null)
+            divisionIds.push(...childIds)
+          } else {
+            divisionIds.push(gid)
+          }
+        } catch {
+          divisionIds.push(gid) // fall back to top-level group on error
+        }
+      }),
+    )
+    return divisionIds
   } catch {
     return []
   }
@@ -164,7 +194,8 @@ async function fetchGroupName(
     const url = `${ESPN_CORE}/${sport}/leagues/${league}/seasons/${season}/types/${seasonType}/groups/${groupId}`
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = (await espnFetch(url)) as any
-    return data.abbreviation ?? data.name ?? `Group ${groupId}`
+    // Use full name (not abbreviation) so inferConference can pattern-match on it.
+    return data.name ?? data.abbreviation ?? `Group ${groupId}`
   } catch {
     return `Group ${groupId}`
   }
