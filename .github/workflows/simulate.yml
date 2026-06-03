@@ -25,7 +25,9 @@ jobs:
         run: npm ci
 
       - name: Load environment secrets
-        run: echo "${{ secrets.EDGE_STATUS_ENV }}" >> $GITHUB_ENV
+        env:
+          EDGE_STATUS_ENV: ${{ secrets.EDGE_STATUS_ENV }}
+        run: printf '%s\n' "$EDGE_STATUS_ENV" > .env
 
       - name: Run simulation
         run: npx tsx scripts/simulate.ts
