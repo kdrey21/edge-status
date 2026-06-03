@@ -221,9 +221,10 @@ async function main() {
           `  [${league.slug.toUpperCase()}] Running sim for ${teams.length} teams…`,
         )
 
-        // Build tracked games: upcoming games in next 14 days
+        // Build tracked games: upcoming games in next 21 days
+        // (MLS plays ~weekly so 14 days can fall entirely between matchdays)
         const cutoffDate = new Date()
-        cutoffDate.setDate(cutoffDate.getDate() + 14)
+        cutoffDate.setDate(cutoffDate.getDate() + 21)
         const idToAbbr = new Map(teams.map(t => [t.id, t.abbreviation]))
         const trackedGames: TrackedGameInput[] = espnGames
           .filter(g => !g.completed && new Date(g.date) <= cutoffDate)

@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { getLeague, type SimResult } from '@/types'
-import { getTeamResult } from '@/lib/supabase'
+import { getTeamResult, getLeagueImportantGames, type ImportantGame } from '@/lib/supabase'
+import ImportantGames from '@/components/ImportantGames'
 import ScheduleTable from '@/components/ScheduleTable'
 import type { Game, LeagueTeam } from '@/types'
 
@@ -39,18 +40,25 @@ export default function TeamPageClient({ league, team }: Props) {
 
   const [result, setResult] = useState<SimResult | null>(null)
   const [simLoading, setSimLoading] = useState(true)
+  const [importantGames, setImportantGames] = useState<ImportantGame[]>([])
 
   const [scheduleGames, setScheduleGames] = useState<ScheduleGame[]>([])
   const [scheduleLoading, setScheduleLoading] = useState(true)
 
-  // Fetch sim data from Supabase
+  // Fetch sim data + important games from Supabase
   useEffect(() => {
     if (!config) {
       setSimLoading(false)
       return
     }
-    getTeamResult(league, teamAbbr)
-      .then(setResult)
+    Promise.all([
+      getTeamResult(league, teamAbbr),
+      getLeagueImportantGames(league, teamAbbr, 10),
+    ])
+      .then(([res, imp]) => {
+        setResult(res)
+        setImportantGames(imp)
+      })
       .catch(() => {})
       .finally(() => setSimLoading(false))
   }, [league, teamAbbr]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -255,6 +263,13 @@ export default function TeamPageClient({ league, team }: Props) {
             <h2 className="text-lg font-bold text-white mb-4">Seed Distribution</h2>
             <SeedChart seedDistribution={result.seed_distribution} />
           </div>
+
+          {/* Most impactful upcoming games for this team */}
+          {importantGames.length > 0 && (
+            <div className="mb-6">
+              <ImportantGames games={importantGames} focusTeam={teamAbbr} />
+            </div>
+          )}
         </>
       )}
 
