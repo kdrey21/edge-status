@@ -1,6 +1,38 @@
 import type { LeagueTeam, Game } from '@/types'
 
 const N_SIMS = 50_000
+
+// ---------------------------------------------------------------------------
+// Game importance tracking types
+// ---------------------------------------------------------------------------
+
+/**
+ * A specific upcoming game you want to measure importance for.
+ * Identified by ESPN team IDs (strings like "24") + ISO date.
+ */
+export interface TrackedGameInput {
+  homeTeamId: string
+  awayTeamId: string
+  date: string
+  homeTeamAbbr: string
+  awayTeamAbbr: string
+}
+
+/**
+ * Computed playoff swing for one game.
+ * Swing = P(team makes playoffs | team wins game) − P(team makes playoffs | team loses game)
+ */
+export interface GameImportanceResult {
+  homeTeamAbbr: string
+  awayTeamAbbr: string
+  date: string
+  /** How much home team's playoff% changes when they win vs lose (pp) */
+  homePlayoffSwing: number
+  /** How much away team's playoff% changes when they win vs lose (pp) */
+  awayPlayoffSwing: number
+  /** Sum of absolute swings — higher = more pivotal game */
+  importanceScore: number
+}
 const HOME_ELO_ADV = 65
 const ELO_SCALE = 400
 
@@ -320,6 +352,7 @@ function simulateStandardBracket(seeds: number[], state: SimState, bestOf = 7): 
 interface ScheduledGame {
   homeIdx: number
   awayIdx: number
+  date: string
   /** Both teams in same division — result counts toward division tiebreaker */
   isDivisionGame: boolean
   /** Both teams in same conference — result counts toward conference tiebreaker */
@@ -339,6 +372,7 @@ function buildRemainingSchedule(
       games.push({
         homeIdx: hi,
         awayIdx: ai,
+        date: g.date.slice(0, 10),
         isDivisionGame: teams[hi].division === teams[ai].division,
         isConferenceGame: teams[hi].conference === teams[ai].conference,
       })
@@ -367,17 +401,70 @@ export interface SimResults {
 // Main simulation
 // ---------------------------------------------------------------------------
 
+export interface SimOutput {
+  results: SimResults[]
+  gameImportance: GameImportanceResult[]
+}
+
 export function runSimulation(
   teams: LeagueTeam[],
   espnGames: Game[],
   leagueSlug: string,
   playoffPerConf: number,
   sport: string,
-): SimResults[] {
+  trackedGameInputs: TrackedGameInput[] = [],
+): SimOutput {
   const n = teams.length
-  if (n === 0) return []
+  if (n === 0) return { results: [], gameImportance: [] }
 
   const schedule = buildRemainingSchedule(teams, espnGames)
+
+  // ── Build game importance trackers ─────────────────────────────────────
+  // For each tracked game, we record conditional probabilities:
+  //   P(team makes playoffs | team wins this game)
+  //   P(team makes playoffs | team loses this game)
+  // Computed at zero extra cost within the existing 50k sim runs.
+
+  const idToIdx = new Map(teams.map((t, i) => [t.id, i]))
+
+  interface GameTracker {
+    homeIdx: number; awayIdx: number
+    abbr: { home: string; away: string }
+    date: string
+    homeWins: number; awayWins: number
+    // home team makes playoffs: when home wins / when away wins
+    hw_hPlayoff: number; aw_hPlayoff: number
+    // away team makes playoffs: when home wins / when away wins
+    hw_aPlayoff: number; aw_aPlayoff: number
+  }
+
+  const trackers: GameTracker[] = []
+  const scheduleIdxToTracker = new Map<number, number>()
+
+  for (const input of trackedGameInputs) {
+    const homeIdx = idToIdx.get(input.homeTeamId)
+    const awayIdx = idToIdx.get(input.awayTeamId)
+    if (homeIdx === undefined || awayIdx === undefined) continue
+
+    // Match to schedule position (by team indices + date)
+    const schedIdx = schedule.findIndex(
+      g => g.homeIdx === homeIdx && g.awayIdx === awayIdx && g.date === input.date.slice(0, 10),
+    )
+
+    const tIdx = trackers.length
+    trackers.push({
+      homeIdx, awayIdx,
+      abbr: { home: input.homeTeamAbbr, away: input.awayTeamAbbr },
+      date: input.date.slice(0, 10),
+      homeWins: 0, awayWins: 0,
+      hw_hPlayoff: 0, aw_hPlayoff: 0,
+      hw_aPlayoff: 0, aw_aPlayoff: 0,
+    })
+    if (schedIdx >= 0) scheduleIdxToTracker.set(schedIdx, tIdx)
+  }
+
+  // Per-sim outcome buffer: 0=unset, 1=awayWon, 2=homeWon
+  const simGameOutcomes = new Uint8Array(trackers.length)
 
   // Accumulators
   const playoffCount   = new Int32Array(n)
@@ -397,11 +484,15 @@ export function runSimulation(
   for (let sim = 0; sim < N_SIMS; sim++) {
     const state = cloneState(teams)
 
+    // Reset per-sim outcome buffer
+    if (trackers.length > 0) simGameOutcomes.fill(0)
+
     // ── Simulate remaining regular season ──
-    for (const game of schedule) {
-      const { homeIdx, awayIdx, isDivisionGame, isConferenceGame } = game
+    for (let si = 0; si < schedule.length; si++) {
+      const { homeIdx, awayIdx, isDivisionGame, isConferenceGame } = schedule[si]
       const p = winProb(state.elos[homeIdx] + HOME_ELO_ADV, state.elos[awayIdx])
-      if (Math.random() < p) {
+      const homeWon = Math.random() < p
+      if (homeWon) {
         state.wins[homeIdx]++; state.losses[awayIdx]++
         if (isDivisionGame)  { state.divWins[homeIdx]++;  state.divLosses[awayIdx]++ }
         if (isConferenceGame){ state.confWins[homeIdx]++; state.confLosses[awayIdx]++ }
@@ -410,6 +501,9 @@ export function runSimulation(
         if (isDivisionGame)  { state.divWins[awayIdx]++;  state.divLosses[homeIdx]++ }
         if (isConferenceGame){ state.confWins[awayIdx]++; state.confLosses[homeIdx]++ }
       }
+      // Record tracked game outcome
+      const tIdx = scheduleIdxToTracker.get(si)
+      if (tIdx !== undefined) simGameOutcomes[tIdx] = homeWon ? 2 : 1
     }
 
     // ── Division title tracking ──
@@ -425,6 +519,7 @@ export function runSimulation(
 
     // ── Seeding + playoff determination ──
     const confChampions: number[] = []
+    const simPlayoffSet = new Set<number>() // all teams that made playoffs this sim
 
     for (const [, confIdxs] of confMap) {
       const seeds = getPlayoffSeeds(sport, confIdxs, teams, state)
@@ -435,6 +530,7 @@ export function runSimulation(
         for (const i of guaranteed) {
           playoffCount[i]++
           seedCount[i][guaranteed.indexOf(i) + 1]++
+          simPlayoffSet.add(i)
         }
 
         let bracketSeeds = [...guaranteed]
@@ -446,6 +542,8 @@ export function runSimulation(
           seedCount[s7][7]++
           seedCount[s8][8]++
           bracketSeeds = [...guaranteed, s7, s8]
+          simPlayoffSet.add(s7)
+          simPlayoffSet.add(s8)
         }
 
         // Seed counting for non-playoff teams
@@ -464,6 +562,7 @@ export function runSimulation(
         for (let r = 0; r < playoffSeeds.length; r++) {
           playoffCount[playoffSeeds[r]]++
           seedCount[playoffSeeds[r]][r + 1]++
+          simPlayoffSet.add(playoffSeeds[r])
         }
         const confChamp = simulateMLBConf(playoffSeeds, state)
         confTitleCount[confChamp]++
@@ -474,6 +573,7 @@ export function runSimulation(
         for (let r = 0; r < playoffSeeds.length; r++) {
           playoffCount[playoffSeeds[r]]++
           seedCount[playoffSeeds[r]][r + 1]++
+          simPlayoffSet.add(playoffSeeds[r])
         }
         const confChamp = simulateNFLConf(playoffSeeds, state)
         confTitleCount[confChamp]++
@@ -485,6 +585,7 @@ export function runSimulation(
         for (let r = 0; r < playoffSeeds.length; r++) {
           playoffCount[playoffSeeds[r]]++
           seedCount[playoffSeeds[r]][r + 1]++
+          simPlayoffSet.add(playoffSeeds[r])
         }
         const confChamp = simulateStandardBracket(playoffSeeds, state, 7)
         confTitleCount[confChamp]++
@@ -495,12 +596,32 @@ export function runSimulation(
     // ── Championship ──
     if (confChampions.length === 2) {
       const [a, b] = confChampions
-      // Series length: NFL Super Bowl = single game; everything else = best-of-7
       const finalBestOf = sport === 'football' ? 1 : 7
-      const champ = simulateMatchup(a, b, state, finalBestOf, true /* neutral site */)
+      const champ = simulateMatchup(a, b, state, finalBestOf, true)
       champCount[champ]++
     } else if (confChampions.length === 1) {
       champCount[confChampions[0]]++
+    }
+
+    // ── Update game importance trackers ──
+    if (trackers.length > 0) {
+      for (let gi = 0; gi < trackers.length; gi++) {
+        const outcome = simGameOutcomes[gi]
+        if (outcome === 0) continue // game wasn't in remaining schedule
+        const t = trackers[gi]
+        const homeWon = outcome === 2
+        const hPlayoff = simPlayoffSet.has(t.homeIdx)
+        const aPlayoff = simPlayoffSet.has(t.awayIdx)
+        if (homeWon) {
+          t.homeWins++
+          if (hPlayoff) t.hw_hPlayoff++
+          if (aPlayoff) t.hw_aPlayoff++
+        } else {
+          t.awayWins++
+          if (hPlayoff) t.aw_hPlayoff++
+          if (aPlayoff) t.aw_aPlayoff++
+        }
+      }
     }
   }
 
@@ -528,7 +649,7 @@ export function runSimulation(
     return en > 0 ? en : 0
   }
 
-  return teams.map((team, i) => ({
+  const results: SimResults[] = teams.map((team, i) => ({
     team: team.abbreviation,
     league: leagueSlug,
     playoff_pct: (playoffCount[i] / N_SIMS) * 100,
@@ -543,4 +664,27 @@ export function runSimulation(
     magic_number: computeMagicNumber(i),
     elim_number: computeElimNumber(i),
   }))
+
+  // ── Compute game importance from tracker counters ──
+  const gameImportance: GameImportanceResult[] = trackers
+    .filter(t => t.homeWins + t.awayWins > 0)
+    .map(t => {
+      const hw = Math.max(t.homeWins, 1)
+      const aw = Math.max(t.awayWins, 1)
+      // P(home makes playoffs | home wins) - P(home makes playoffs | away wins)
+      const homeSwing = (t.hw_hPlayoff / hw - t.aw_hPlayoff / aw) * 100
+      // P(away makes playoffs | away wins) - P(away makes playoffs | home wins)
+      const awaySwing = (t.aw_aPlayoff / aw - t.hw_aPlayoff / hw) * 100
+      return {
+        homeTeamAbbr: t.abbr.home,
+        awayTeamAbbr: t.abbr.away,
+        date: t.date,
+        homePlayoffSwing: Math.round(homeSwing * 10) / 10,
+        awayPlayoffSwing: Math.round(awaySwing * 10) / 10,
+        importanceScore: Math.round((Math.abs(homeSwing) + Math.abs(awaySwing)) * 10) / 10,
+      }
+    })
+    .sort((a, b) => b.importanceScore - a.importanceScore)
+
+  return { results, gameImportance }
 }

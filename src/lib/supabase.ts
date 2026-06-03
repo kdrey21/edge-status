@@ -34,6 +34,53 @@ export async function getTeamResult(league: string, team: string): Promise<SimRe
 }
 
 // ---------------------------------------------------------------------------
+// Game importance
+// ---------------------------------------------------------------------------
+
+export interface ImportantGame {
+  league: string
+  game_date: string
+  home_team: string
+  away_team: string
+  home_playoff_swing: number
+  away_playoff_swing: number
+  importance_score: number
+}
+
+/**
+ * Fetch the most important upcoming games for a league, sorted by importance.
+ * An optional teamAbbr filters to games involving a specific team.
+ */
+export async function getLeagueImportantGames(
+  league: string,
+  teamAbbr?: string,
+  limit = 10,
+): Promise<ImportantGame[]> {
+  let query = getAnonClient()
+    .from('game_importance')
+    .select('*')
+    .eq('league', league)
+    .gte('game_date', new Date().toISOString().slice(0, 10))
+    .order('importance_score', { ascending: false })
+    .limit(limit)
+
+  if (teamAbbr) {
+    query = getAnonClient()
+      .from('game_importance')
+      .select('*')
+      .eq('league', league)
+      .gte('game_date', new Date().toISOString().slice(0, 10))
+      .or(`home_team.eq.${teamAbbr},away_team.eq.${teamAbbr}`)
+      .order('importance_score', { ascending: false })
+      .limit(limit)
+  }
+
+  const { data, error } = await query
+  if (error || !data) return []
+  return data as ImportantGame[]
+}
+
+// ---------------------------------------------------------------------------
 // Snapshot history (Phase 4)
 // ---------------------------------------------------------------------------
 

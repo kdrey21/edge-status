@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { getLeague, type SimResult } from '@/types'
-import { getLeagueResults, getLeagueSnapshots, type SnapPoint } from '@/lib/supabase'
+import { getLeagueResults, getLeagueSnapshots, getLeagueImportantGames, type SnapPoint, type ImportantGame } from '@/lib/supabase'
 import StandingsTable from '@/components/StandingsTable'
+import ImportantGames from '@/components/ImportantGames'
 
 interface Props {
   league: string
@@ -37,6 +38,7 @@ export default function LeaguePageClient({ league }: Props) {
   const config = getLeague(league)
   const [results, setResults] = useState<SimResult[]>([])
   const [snapshots, setSnapshots] = useState<Map<string, SnapPoint[]>>(new Map())
+  const [importantGames, setImportantGames] = useState<ImportantGame[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -47,10 +49,12 @@ export default function LeaguePageClient({ league }: Props) {
     Promise.all([
       getLeagueResults(league),
       getLeagueSnapshots(league, 14),
+      getLeagueImportantGames(league, undefined, 8),
     ])
-      .then(([res, snaps]) => {
+      .then(([res, snaps, imp]) => {
         setResults(res)
         setSnapshots(buildSnapshotMap(snaps))
+        setImportantGames(imp)
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -139,6 +143,11 @@ export default function LeaguePageClient({ league }: Props) {
             Click a column header to sort. Click a team to see full breakdown.
           </p>
           <StandingsTable results={results} league={league} snapshots={snapshots} />
+          {importantGames.length > 0 && (
+            <div className="mt-6">
+              <ImportantGames games={importantGames} />
+            </div>
+          )}
         </>
       )}
     </div>

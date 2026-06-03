@@ -16,7 +16,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { LEAGUES } from '@/types'
 import { fetchStandings, fetchUpcomingGames, isLeagueActive, fetchPlayoffAliveTeamIds } from '@/lib/espn'
-import { runSimulation } from '@/lib/simulation'
+import { runSimulation, type TrackedGameInput } from '@/lib/simulation'
 import { fetchSportsbookChampionshipOdds } from '@/lib/odds'
 import { fetchKalshiChampionshipOdds } from '@/lib/kalshi'
 
@@ -221,12 +221,29 @@ async function main() {
           `  [${league.slug.toUpperCase()}] Running sim for ${teams.length} teams…`,
         )
 
-        const simResults = runSimulation(
+        // Build tracked games: upcoming games in next 14 days
+        const cutoffDate = new Date()
+        cutoffDate.setDate(cutoffDate.getDate() + 14)
+        const idToAbbr = new Map(teams.map(t => [t.id, t.abbreviation]))
+        const trackedGames: TrackedGameInput[] = espnGames
+          .filter(g => !g.completed && new Date(g.date) <= cutoffDate)
+          .filter(g => idToAbbr.has(g.homeTeamId) && idToAbbr.has(g.awayTeamId))
+          .slice(0, 60)
+          .map(g => ({
+            homeTeamId: g.homeTeamId,
+            awayTeamId: g.awayTeamId,
+            date: g.date.slice(0, 10),
+            homeTeamAbbr: idToAbbr.get(g.homeTeamId)!,
+            awayTeamAbbr: idToAbbr.get(g.awayTeamId)!,
+          }))
+
+        const { results: simResults, gameImportance } = runSimulation(
           teams,
           espnGames,
           league.slug,
           league.playoffTeamsPerConference,
           league.sport,
+          trackedGames,
         )
 
         // -------------------------------------------------------------------
@@ -384,6 +401,25 @@ async function main() {
           .from('sim_snapshots')
           .upsert(snapRows, { onConflict: 'team,league,snap_date' })
         if (snapErr) console.warn(`  [${league.slug.toUpperCase()}] Snapshot write failed: ${snapErr.message}`)
+
+        // Upsert game importance (top 15 most pivotal upcoming games)
+        if (gameImportance.length > 0) {
+          const importanceRows = gameImportance.slice(0, 15).map(g => ({
+            league: league.slug,
+            game_date: g.date,
+            home_team: g.homeTeamAbbr,
+            away_team: g.awayTeamAbbr,
+            home_playoff_swing: g.homePlayoffSwing,
+            away_playoff_swing: g.awayPlayoffSwing,
+            importance_score: g.importanceScore,
+            updated_at: new Date().toISOString(),
+          }))
+          const { error: impErr } = await db
+            .from('game_importance')
+            .upsert(importanceRows, { onConflict: 'league,game_date,home_team,away_team' })
+          if (impErr) console.warn(`  [${league.slug.toUpperCase()}] Game importance write failed: ${impErr.message}`)
+          else console.log(`  [${league.slug.toUpperCase()}] ✓ ${importanceRows.length} game importance rows upserted`)
+        }
 
         const edgeTeams = rows.filter(r => r.champ_ev_pct != null && r.champ_ev_pct > 5)
         console.log(
