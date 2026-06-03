@@ -92,14 +92,110 @@ async function main() {
         ])
 
         if (!isLeagueActive(teams)) {
+          // Off-season: skip simulation, but still fetch market futures if configured
+          const canFetchOffSeasonMarkets =
+            hasOddsKey && hasKalshiKey &&
+            league.oddsApiSport != null &&
+            league.kalshiSeries != null &&
+            league.marketNameMap != null
+
+          if (!canFetchOffSeasonMarkets) {
+            console.log(
+              `  [${league.slug.toUpperCase()}] Inactive — ${teams.length} teams, no games played`,
+            )
+            results.push({
+              league: league.slug,
+              teams: teams.length,
+              status: `inactive (fetched ${teams.length} teams, none with games played)`,
+            })
+            return
+          }
+
+          console.log(`  [${league.slug.toUpperCase()}] Off-season — fetching futures market data…`)
+          const [oddsResult, kalshiResult] = await Promise.allSettled([
+            fetchSportsbookChampionshipOdds(league.oddsApiSport!, ODDS_API_KEY!),
+            fetchKalshiChampionshipOdds(league.kalshiSeries!, KALSHI_API_TOKEN!),
+          ])
+          const oddsMap = oddsResult.status === 'fulfilled' ? oddsResult.value : new Map<string, number>()
+          const kalshiMap = kalshiResult.status === 'fulfilled' ? kalshiResult.value : new Map<string, number>()
           console.log(
-            `  [${league.slug.toUpperCase()}] Inactive — ${teams.length} teams, no games played`,
+            `  [${league.slug.toUpperCase()}] Odds=${oddsMap.size} teams  Kalshi=${kalshiMap.size} teams`,
           )
-          results.push({
-            league: league.slug,
-            teams: teams.length,
-            status: `inactive (fetched ${teams.length} teams, none with games played)`,
-          })
+
+          const nameMap = league.marketNameMap!
+          const rows: object[] = []
+
+          for (const abbr of league.teams) {
+            // Find the market name key(s) that map to this abbreviation
+            const marketKeys = Object.entries(nameMap)
+              .filter(([, v]) => v === abbr)
+              .map(([k]) => k)
+
+            let kalshi_champ_pct: number | null = null
+            let sportsbook_champ_pct: number | null = null
+
+            for (const key of marketKeys) {
+              if (kalshi_champ_pct == null) {
+                for (const [mk, mv] of kalshiMap) {
+                  if (mk.includes(key) || key.includes(mk)) {
+                    kalshi_champ_pct = mv; break
+                  }
+                }
+              }
+              if (sportsbook_champ_pct == null) {
+                for (const [ok, ov] of oddsMap) {
+                  if (ok.includes(key) || key.includes(ok)) {
+                    sportsbook_champ_pct = ov; break
+                  }
+                }
+              }
+            }
+
+            // Only upsert teams found in at least one market
+            if (kalshi_champ_pct == null && sportsbook_champ_pct == null) continue
+
+            const champ_ev_pct =
+              kalshi_champ_pct != null && sportsbook_champ_pct != null
+                ? kalshi_champ_pct - sportsbook_champ_pct
+                : null
+
+            rows.push({
+              team: abbr,
+              league: league.slug,
+              wins: null,
+              losses: null,
+              games_back: null,
+              playoff_pct: null,
+              div_title_pct: null,
+              conf_title_pct: null,
+              championship_pct: null,
+              seed_distribution: null,
+              magic_number: null,
+              elim_number: null,
+              kalshi_champ_pct,
+              sportsbook_champ_pct,
+              champ_ev_pct,
+              implied_playoff_pct: null,
+              edge_pct: null,
+              updated_at: new Date().toISOString(),
+            })
+          }
+
+          if (rows.length > 0) {
+            const { error } = await db
+              .from('sim_results')
+              .upsert(rows, { onConflict: 'team,league' })
+            if (error) throw error
+          }
+
+          const edgeTeams = (rows as any[]).filter(r => r.champ_ev_pct != null && r.champ_ev_pct > 5)
+          console.log(
+            `  [${league.slug.toUpperCase()}] ✓ ${rows.length} market-only rows upserted` +
+            (edgeTeams.length > 0
+              ? ` | 🎯 ${edgeTeams.length} VALUE: ${edgeTeams.map((r: any) => `${r.team} +${r.champ_ev_pct.toFixed(1)}%`).join(', ')}`
+              : ''),
+          )
+          results.push({ league: league.slug, teams: rows.length, status: 'market-only' })
           return
         }
 

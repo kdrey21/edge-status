@@ -34,11 +34,11 @@ export async function getTeamResult(league: string, team: string): Promise<SimRe
 }
 
 export async function getAllLeaguesSummary(): Promise<
-  { league: string; count: number; updated_at: string }[]
+  { league: string; count: number; updated_at: string; hasSim: boolean }[]
 > {
   const { data, error } = await getAnonClient()
     .from('sim_results')
-    .select('league, updated_at')
+    .select('league, updated_at, playoff_pct')
 
   if (error || !data) return []
 
@@ -54,5 +54,7 @@ export async function getAllLeaguesSummary(): Promise<
     league,
     updated_at,
     count: data.filter(r => r.league === league).length,
+    // hasSim: true when at least one team has sim results (playoff_pct not null)
+    hasSim: data.some(r => r.league === league && r.playoff_pct != null),
   }))
 }

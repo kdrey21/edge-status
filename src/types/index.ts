@@ -63,6 +63,10 @@ export interface LeagueConfig {
   kalshiSeries?: string  // Kalshi series ticker prefix, e.g. 'NBACHAMP'
                          // ⚠ Verify exact ticker in Kalshi dashboard after signing up —
                          //   may be 'KXNBACHAMP' or similar; update this if markets return 0.
+  // Off-season market matching: lowercase partial city/name → team abbreviation.
+  // Used when ESPN standings are unavailable (off-season) but futures markets still trade.
+  // Keys should match what Kalshi yes_sub_title and Odds API team names contain.
+  marketNameMap?: Record<string, string>
 }
 
 export const LEAGUES: LeagueConfig[] = [
@@ -126,6 +130,41 @@ export const LEAGUES: LeagueConfig[] = [
       'DET','GB','HOU','IND','JAX','KC','LAC','LAR','LV','MIA',
       'MIN','NE','NO','NYG','NYJ','PHI','PIT','SEA','SF','TB','TEN','WSH',
     ],
+    // Lowercase city/name → abbreviation for off-season market matching
+    marketNameMap: {
+      'arizona':              'ARI',
+      'atlanta':              'ATL',
+      'baltimore':            'BAL',
+      'buffalo':              'BUF',
+      'carolina':             'CAR',
+      'chicago':              'CHI',
+      'cincinnati':           'CIN',
+      'cleveland':            'CLE',
+      'dallas':               'DAL',
+      'denver':               'DEN',
+      'detroit':              'DET',
+      'green bay':            'GB',
+      'houston':              'HOU',
+      'indianapolis':         'IND',
+      'jacksonville':         'JAX',
+      'kansas city':          'KC',
+      'los angeles chargers': 'LAC',
+      'los angeles rams':     'LAR',
+      'las vegas':            'LV',
+      'miami':                'MIA',
+      'minnesota':            'MIN',
+      'new england':          'NE',
+      'new orleans':          'NO',
+      'new york giants':      'NYG',
+      'new york jets':        'NYJ',
+      'philadelphia':         'PHI',
+      'pittsburgh':           'PIT',
+      'seattle':              'SEA',
+      'san francisco':        'SF',
+      'tampa bay':            'TB',
+      'tennessee':            'TEN',
+      'washington':           'WSH',
+    },
   },
   {
     name: 'MLS',

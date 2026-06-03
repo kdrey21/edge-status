@@ -6,9 +6,9 @@ import { getAllLeaguesSummary } from '@/lib/supabase'
 import LeagueCard from '@/components/LeagueCard'
 
 export default function HomePage() {
-  const [summary, setSummary] = useState<{ league: string; count: number; updated_at: string }[]>(
-    [],
-  )
+  const [summary, setSummary] = useState<
+    { league: string; count: number; updated_at: string; hasSim: boolean }[]
+  >([])
 
   useEffect(() => {
     getAllLeaguesSummary()
@@ -32,12 +32,17 @@ export default function HomePage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {LEAGUES.map(league => {
           const data = summaryMap.get(league.slug)
-          const active = (data?.count ?? 0) > 0
+          const state =
+            data == null || data.count === 0
+              ? 'inactive'
+              : data.hasSim
+                ? 'active'
+                : 'futures'
           return (
             <LeagueCard
               key={league.slug}
               league={league}
-              active={active}
+              state={state}
               updatedAt={data?.updated_at}
             />
           )
