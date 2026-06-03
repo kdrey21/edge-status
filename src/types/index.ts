@@ -72,6 +72,10 @@ export interface LeagueConfig {
   // Used when ESPN standings are unavailable (off-season) but futures markets still trade.
   // Keys should match what Kalshi yes_sub_title and Odds API team names contain.
   marketNameMap?: Record<string, string>
+  // Team abbr → division name (for position summaries and tiebreaker context)
+  divisionMap?: Record<string, string>
+  // Team abbr → conference name (short form, e.g. "AL", "NFC", "Eastern Conference")
+  conferenceMap?: Record<string, string>
 }
 
 export const LEAGUES: LeagueConfig[] = [
@@ -89,6 +93,22 @@ export const LEAGUES: LeagueConfig[] = [
       'HOU','IND','LAC','LAL','MEM','MIA','MIL','MIN','NO','NY',
       'OKC','ORL','PHI','PHX','POR','SAC','SA','TOR','UTA','WSH',
     ],
+    divisionMap: {
+      BOS:'Atlantic', BKN:'Atlantic', NY:'Atlantic', PHI:'Atlantic', TOR:'Atlantic',
+      CHI:'Central',  CLE:'Central',  DET:'Central', IND:'Central',  MIL:'Central',
+      ATL:'Southeast',CHA:'Southeast',MIA:'Southeast',ORL:'Southeast',WSH:'Southeast',
+      DEN:'Northwest',MIN:'Northwest',OKC:'Northwest',POR:'Northwest',UTA:'Northwest',
+      GS:'Pacific',   LAC:'Pacific',  LAL:'Pacific',  PHX:'Pacific',  SAC:'Pacific',
+      DAL:'Southwest',HOU:'Southwest',MEM:'Southwest',NO:'Southwest',  SA:'Southwest',
+    },
+    conferenceMap: {
+      BOS:'East', BKN:'East', NY:'East',  PHI:'East', TOR:'East',
+      CHI:'East', CLE:'East', DET:'East', IND:'East', MIL:'East',
+      ATL:'East', CHA:'East', MIA:'East', ORL:'East', WSH:'East',
+      DEN:'West', MIN:'West', OKC:'West', POR:'West', UTA:'West',
+      GS:'West',  LAC:'West', LAL:'West', PHX:'West', SAC:'West',
+      DAL:'West', HOU:'West', MEM:'West', NO:'West',  SA:'West',
+    },
   },
   {
     name: 'NHL',
@@ -105,6 +125,22 @@ export const LEAGUES: LeagueConfig[] = [
       'PHI','PIT','SJS','SEA','STL','TB','TOR','UTA','VAN','VGK','WSH',
       'ARI',
     ],
+    divisionMap: {
+      BOS:'Atlantic', BUF:'Atlantic', DET:'Atlantic', FLA:'Atlantic',
+      MTL:'Atlantic', OTT:'Atlantic', TB:'Atlantic',  TOR:'Atlantic',
+      CAR:'Metropolitan', CBJ:'Metropolitan', NJ:'Metropolitan',  NYI:'Metropolitan',
+      NYR:'Metropolitan', PHI:'Metropolitan', PIT:'Metropolitan',  WSH:'Metropolitan',
+      ARI:'Central', CHI:'Central', COL:'Central', DAL:'Central',
+      MIN:'Central', NSH:'Central', STL:'Central', UTA:'Central',
+      ANA:'Pacific', CGY:'Pacific', EDM:'Pacific', LA:'Pacific',
+      SEA:'Pacific', SJS:'Pacific', VAN:'Pacific', VGK:'Pacific',
+    },
+    conferenceMap: {
+      BOS:'East', BUF:'East', DET:'East', FLA:'East', MTL:'East', OTT:'East', TB:'East', TOR:'East',
+      CAR:'East', CBJ:'East', NJ:'East',  NYI:'East', NYR:'East', PHI:'East', PIT:'East', WSH:'East',
+      ARI:'West', CHI:'West', COL:'West', DAL:'West', MIN:'West', NSH:'West', STL:'West', UTA:'West',
+      ANA:'West', CGY:'West', EDM:'West', LA:'West',  SEA:'West', SJS:'West', VAN:'West', VGK:'West',
+    },
   },
   {
     name: 'MLB',
@@ -120,6 +156,22 @@ export const LEAGUES: LeagueConfig[] = [
       'HOU','KC','LAA','LAD','MIA','MIL','MIN','NYM','NYY','OAK',
       'PHI','PIT','SD','SEA','SF','STL','TB','TEX','TOR','WSH',
     ],
+    divisionMap: {
+      BAL:'AL East',  BOS:'AL East',  NYY:'AL East',  TB:'AL East',   TOR:'AL East',
+      CWS:'AL Central',CLE:'AL Central',DET:'AL Central',KC:'AL Central',MIN:'AL Central',
+      HOU:'AL West',  LAA:'AL West',  OAK:'AL West',  SEA:'AL West',  TEX:'AL West',
+      ATL:'NL East',  MIA:'NL East',  NYM:'NL East',  PHI:'NL East',  WSH:'NL East',
+      CHC:'NL Central',CIN:'NL Central',MIL:'NL Central',PIT:'NL Central',STL:'NL Central',
+      ARI:'NL West',  COL:'NL West',  LAD:'NL West',  SD:'NL West',   SF:'NL West',
+    },
+    conferenceMap: {
+      BAL:'AL', BOS:'AL', NYY:'AL', TB:'AL',  TOR:'AL',
+      CWS:'AL', CLE:'AL', DET:'AL', KC:'AL',  MIN:'AL',
+      HOU:'AL', LAA:'AL', OAK:'AL', SEA:'AL', TEX:'AL',
+      ATL:'NL', MIA:'NL', NYM:'NL', PHI:'NL', WSH:'NL',
+      CHC:'NL', CIN:'NL', MIL:'NL', PIT:'NL', STL:'NL',
+      ARI:'NL', COL:'NL', LAD:'NL', SD:'NL',  SF:'NL',
+    },
   },
   {
     name: 'NFL',
@@ -135,6 +187,26 @@ export const LEAGUES: LeagueConfig[] = [
       'DET','GB','HOU','IND','JAX','KC','LAC','LAR','LV','MIA',
       'MIN','NE','NO','NYG','NYJ','PHI','PIT','SEA','SF','TB','TEN','WSH',
     ],
+    divisionMap: {
+      BUF:'AFC East',  MIA:'AFC East',  NE:'AFC East',   NYJ:'AFC East',
+      BAL:'AFC North', CIN:'AFC North', CLE:'AFC North', PIT:'AFC North',
+      HOU:'AFC South', IND:'AFC South', JAX:'AFC South', TEN:'AFC South',
+      DEN:'AFC West',  KC:'AFC West',   LAC:'AFC West',  LV:'AFC West',
+      DAL:'NFC East',  NYG:'NFC East',  PHI:'NFC East',  WSH:'NFC East',
+      CHI:'NFC North', DET:'NFC North', GB:'NFC North',  MIN:'NFC North',
+      ATL:'NFC South', CAR:'NFC South', NO:'NFC South',  TB:'NFC South',
+      ARI:'NFC West',  LAR:'NFC West',  SEA:'NFC West',  SF:'NFC West',
+    },
+    conferenceMap: {
+      BUF:'AFC', MIA:'AFC', NE:'AFC',  NYJ:'AFC',
+      BAL:'AFC', CIN:'AFC', CLE:'AFC', PIT:'AFC',
+      HOU:'AFC', IND:'AFC', JAX:'AFC', TEN:'AFC',
+      DEN:'AFC', KC:'AFC',  LAC:'AFC', LV:'AFC',
+      DAL:'NFC', NYG:'NFC', PHI:'NFC', WSH:'NFC',
+      CHI:'NFC', DET:'NFC', GB:'NFC',  MIN:'NFC',
+      ATL:'NFC', CAR:'NFC', NO:'NFC',  TB:'NFC',
+      ARI:'NFC', LAR:'NFC', SEA:'NFC', SF:'NFC',
+    },
     // Lowercase city/name → abbreviation for off-season market matching
     marketNameMap: {
       'arizona':              'ARI',
@@ -186,6 +258,22 @@ export const LEAGUES: LeagueConfig[] = [
       'LA','LAFC','MIA','MIN','MTL','NE','NSH','RBNY','NYC','ORL',
       'PHI','POR','RSL','SD','SEA','SJ','SKC','STL','TOR','VAN',
     ],
+    divisionMap: {
+      ATL:'East', CHI:'East', CIN:'East', CLB:'East', CLT:'East',
+      DC:'East',  MIA:'East', MTL:'East', NE:'East',  NYC:'East',
+      ORL:'East', PHI:'East', RBNY:'East',TOR:'East',
+      ATX:'West', COL:'West', DAL:'West', HOU:'West', LA:'West',
+      LAFC:'West',MIN:'West', NSH:'West', POR:'West', RSL:'West',
+      SD:'West',  SEA:'West', SJ:'West',  SKC:'West', STL:'West', VAN:'West',
+    },
+    conferenceMap: {
+      ATL:'East', CHI:'East', CIN:'East', CLB:'East', CLT:'East',
+      DC:'East',  MIA:'East', MTL:'East', NE:'East',  NYC:'East',
+      ORL:'East', PHI:'East', RBNY:'East',TOR:'East',
+      ATX:'West', COL:'West', DAL:'West', HOU:'West', LA:'West',
+      LAFC:'West',MIN:'West', NSH:'West', POR:'West', RSL:'West',
+      SD:'West',  SEA:'West', SJ:'West',  SKC:'West', STL:'West', VAN:'West',
+    },
   },
 ]
 

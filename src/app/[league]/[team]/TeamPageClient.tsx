@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { getLeague, type SimResult } from '@/types'
-import { getTeamResult, getLeagueImportantGames, type ImportantGame } from '@/lib/supabase'
+import { getLeague, type SimResult, type LeagueConfig } from '@/types'
+import { getTeamResult, getLeagueResults, getLeagueImportantGames, type ImportantGame } from '@/lib/supabase'
 import ImportantGames from '@/components/ImportantGames'
 import ScheduleTable from '@/components/ScheduleTable'
 import type { Game, LeagueTeam } from '@/types'
@@ -55,6 +55,117 @@ function pctColor(pct: number): string {
   return 'text-red-400'
 }
 
+/** Ordinal suffix: 1→"1st", 2→"2nd", etc. */
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd']
+  const v = n % 100
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0])
+}
+
+/**
+ * Generate a 2–3 sentence plain-English summary of a team's current
+ * playoff position and odds. Uses only data already available in Supabase.
+ */
+function generatePositionSummary(
+  teamAbbr: string,
+  team: SimResult,
+  allTeams: SimResult[],
+  config: LeagueConfig,
+): string {
+  if (!config) return ''
+
+  const division  = config.divisionMap?.[teamAbbr]
+  const conference = config.conferenceMap?.[teamAbbr]
+
+  // Sort helper: best record first (wins desc, losses asc)
+  const byRecord = (a: SimResult, b: SimResult) =>
+    b.wins !== a.wins ? b.wins - a.wins : a.losses - b.losses
+
+  // Division standings
+  const divTeams = division
+    ? allTeams.filter(t => config.divisionMap?.[t.team] === division).sort(byRecord)
+    : []
+  const divRank = divTeams.findIndex(t => t.team === teamAbbr) + 1
+  const divLeader = divTeams[0]
+
+  // Conference standings (for wild card position)
+  const confTeams = conference
+    ? allTeams.filter(t => config.conferenceMap?.[t.team] === conference).sort(byRecord)
+    : []
+
+  // Number of division winners per conference = number of unique divisions
+  const divsInConf = conference
+    ? new Set(confTeams.map(t => config.divisionMap?.[t.team]).filter(Boolean)).size
+    : 0
+  const wcSpots = Math.max(0, config.playoffTeamsPerConference - divsInConf)
+
+  // Wild card position: among non-division-leaders
+  const divLeaders = new Set(
+    [...(new Set(confTeams.map(t => config.divisionMap?.[t.team]).filter(Boolean)))]
+      .map(div => confTeams.filter(t => config.divisionMap?.[t.team] === div)[0]?.team)
+      .filter(Boolean),
+  )
+  const wcTeams = confTeams.filter(
+    t => t.team === teamAbbr || !divLeaders.has(t.team),
+  )
+  const wcRank = wcTeams.findIndex(t => t.team === teamAbbr) + 1
+
+  // Record sentence
+  const record = `${team.wins}-${team.losses}`
+  const gp = team.wins + team.losses
+
+  // Position sentence
+  let positionSentence = ''
+  if (divRank === 1 && team.games_back === 0) {
+    const lead = divTeams[1]
+      ? `, ${(divTeams[1].games_back ?? 0).toFixed(1)} GB ahead of the pack`
+      : ''
+    positionSentence = `They lead the ${division ?? 'division'}${lead}.`
+  } else if (divRank > 0) {
+    const gb = team.games_back > 0 ? ` (${team.games_back.toFixed(1)} GB)` : ''
+    positionSentence = `They sit ${ordinal(divRank)} in the ${division ?? 'division'}${gb}.`
+  }
+
+  // Wild card context (only for non-division leaders)
+  let wcSentence = ''
+  if (wcSpots > 0 && divRank !== 1 && wcRank > 0) {
+    if (wcRank <= wcSpots) {
+      wcSentence = ` They currently hold the ${ordinal(wcRank)} wild card spot.`
+    } else {
+      const spotsOut = wcRank - wcSpots
+      wcSentence = ` They're ${spotsOut} spot${spotsOut > 1 ? 's' : ''} outside the wild card.`
+    }
+  }
+
+  // Playoff odds sentence
+  const pct = team.playoff_pct ?? 0
+  let oddsDesc: string
+  if (pct >= 97)       oddsDesc = `With a ${pct.toFixed(0)}% playoff probability, they're virtually clinched.`
+  else if (pct >= 80)  oddsDesc = `Their ${pct.toFixed(1)}% playoff odds put them in strong position.`
+  else if (pct >= 55)  oddsDesc = `At ${pct.toFixed(1)}%, they're on the right side of the bubble — but not safe yet.`
+  else if (pct >= 35)  oddsDesc = `Their ${pct.toFixed(1)}% odds make this a genuine playoff race.`
+  else if (pct >= 15)  oddsDesc = `At ${pct.toFixed(1)}%, they're fighting long odds to reach the postseason.`
+  else if (pct > 0)    oddsDesc = `With just ${pct.toFixed(1)}% playoff odds, they need a near-miracle run.`
+  else                 oddsDesc = `They've been mathematically eliminated from playoff contention.`
+
+  // Magic / elim number coda
+  let numberCoda = ''
+  if (team.magic_number != null && team.magic_number <= 10) {
+    numberCoda = ` Magic number: ${team.magic_number}.`
+  } else if (team.elim_number != null && team.elim_number <= 8) {
+    numberCoda = ` Elimination number: ${team.elim_number}.`
+  }
+
+  // Games played context (early season caveat)
+  const caveat = gp < 20 ? ' (Early season — small sample size.)' : ''
+
+  return [
+    `${teamAbbr} is ${record} through ${gp} games.`,
+    positionSentence + wcSentence,
+    oddsDesc + numberCoda + caveat,
+  ].filter(Boolean).join(' ')
+}
+
 type ScheduleGame = { date: string; opponent: string; isHome: boolean; winProb: number }
 
 export default function TeamPageClient({ league, team }: Props) {
@@ -62,13 +173,14 @@ export default function TeamPageClient({ league, team }: Props) {
   const teamAbbr = team.toUpperCase()
 
   const [result, setResult] = useState<SimResult | null>(null)
+  const [allResults, setAllResults] = useState<SimResult[]>([])
   const [simLoading, setSimLoading] = useState(true)
   const [importantGames, setImportantGames] = useState<ImportantGame[]>([])
 
   const [scheduleGames, setScheduleGames] = useState<ScheduleGame[]>([])
   const [scheduleLoading, setScheduleLoading] = useState(true)
 
-  // Fetch sim data + important games from Supabase
+  // Fetch sim data (this team + all league results for context) + important games
   useEffect(() => {
     if (!config) {
       setSimLoading(false)
@@ -76,10 +188,12 @@ export default function TeamPageClient({ league, team }: Props) {
     }
     Promise.all([
       getTeamResult(league, teamAbbr),
+      getLeagueResults(league),
       getLeagueImportantGames(league, teamAbbr, 10),
     ])
-      .then(([res, imp]) => {
+      .then(([res, all, imp]) => {
         setResult(res)
+        setAllResults(all)
         setImportantGames(imp)
       })
       .catch(() => {})
@@ -176,6 +290,17 @@ export default function TeamPageClient({ league, team }: Props) {
         </div>
       ) : (
         <>
+          {/* Position summary */}
+          {allResults.length > 0 && result.playoff_pct != null && (() => {
+            const summary = generatePositionSummary(teamAbbr, result, allResults, config)
+            return summary ? (
+              <div className="rounded-xl border border-surface-border bg-surface-card p-5 mb-6">
+                <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Position Summary</p>
+                <p className="text-sm text-gray-300 leading-relaxed">{summary}</p>
+              </div>
+            ) : null
+          })()}
+
           {/* Key stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             <StatCard
