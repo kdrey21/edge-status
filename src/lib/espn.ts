@@ -343,3 +343,43 @@ export function isLeagueActive(teams: LeagueTeam[]): boolean {
   if (teams.length < 4) return false
   return teams.some(t => t.wins + t.losses + t.ties > 0)
 }
+
+/**
+ * Returns the ESPN team IDs of teams currently alive in the playoffs —
+ * i.e. appearing in any non-completed postseason (season type 3) event.
+ *
+ * Returns an empty Set when:
+ *   - The league isn't in playoff season yet (MLB regular season, etc.)
+ *   - The playoffs are completely finished
+ *   - ESPN returns no data
+ *
+ * Used to zero out championship/conf odds for eliminated teams after the
+ * regular season ends and we switch to pure playoff-bracket simulation.
+ */
+export async function fetchPlayoffAliveTeamIds(espnPath: string): Promise<Set<string>> {
+  try {
+    const url = `${ESPN_SITE}/${espnPath}/scoreboard?seasontype=3&limit=200`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = (await espnFetch(url)) as any
+    const aliveIds = new Set<string>()
+
+    for (const event of data.events ?? []) {
+      // Only process actual postseason events — some leagues return regular
+      // season games even when seasontype=3 is passed (e.g. MLB in June).
+      if (event.season?.type !== 3) continue
+      const completed = event.status?.type?.completed ?? false
+      if (completed) continue
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const comps: any[] = event.competitions?.[0]?.competitors ?? []
+      for (const comp of comps) {
+        const id = comp.team?.id
+        if (id) aliveIds.add(String(id))
+      }
+    }
+
+    return aliveIds
+  } catch {
+    return new Set()
+  }
+}

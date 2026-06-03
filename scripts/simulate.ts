@@ -15,7 +15,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { LEAGUES } from '@/types'
-import { fetchStandings, fetchUpcomingGames, isLeagueActive } from '@/lib/espn'
+import { fetchStandings, fetchUpcomingGames, isLeagueActive, fetchPlayoffAliveTeamIds } from '@/lib/espn'
 import { runSimulation } from '@/lib/simulation'
 import { fetchSportsbookChampionshipOdds } from '@/lib/odds'
 import { fetchKalshiChampionshipOdds } from '@/lib/kalshi'
@@ -301,6 +301,64 @@ async function main() {
             updated_at: new Date().toISOString(),
           }
         })
+
+        // -------------------------------------------------------------------
+        // Playoff state adjustment
+        // When the regular season is over (0 games remaining), the Monte Carlo
+        // sim runs the full playoff bracket from scratch — it doesn't know which
+        // teams have already been eliminated. Fix this by fetching the ESPN
+        // postseason scoreboard and zeroing out championship/conf odds for any
+        // team that no longer has a scheduled playoff game.
+        // -------------------------------------------------------------------
+        const totalGamesRemaining = teams.reduce((s, t) => s + t.gamesRemaining, 0)
+        if (totalGamesRemaining === 0) {
+          const aliveIds = await fetchPlayoffAliveTeamIds(league.espnPath)
+          if (aliveIds.size > 0) {
+            const idToAbbr = new Map(teams.map(t => [t.id, t.abbreviation]))
+            const aliveAbbrs = new Set(
+              [...aliveIds].map(id => idToAbbr.get(id)).filter((a): a is string => a != null),
+            )
+
+            console.log(
+              `  [${league.slug.toUpperCase()}] Playoff mode — ${aliveAbbrs.size} alive: ${[...aliveAbbrs].sort().join(', ')}`,
+            )
+
+            // Zero out eliminated teams
+            for (const row of rows) {
+              if (!aliveAbbrs.has(row.team)) {
+                row.championship_pct = 0
+                row.conf_title_pct = 0
+              }
+            }
+
+            // Renormalize championship_pct so alive teams sum to 100%
+            const totalChamp = rows
+              .filter(r => aliveAbbrs.has(r.team))
+              .reduce((s, r) => s + r.championship_pct, 0)
+            if (totalChamp > 0) {
+              for (const row of rows) {
+                if (aliveAbbrs.has(row.team)) {
+                  row.championship_pct = (row.championship_pct / totalChamp) * 100
+                }
+              }
+            }
+
+            // Renormalize conf_title_pct per conference among alive teams
+            const teamConf = new Map(teams.map(t => [t.abbreviation, t.conference]))
+            const conferences = new Set(teams.map(t => t.conference))
+            for (const conf of conferences) {
+              const aliveInConf = rows.filter(
+                r => aliveAbbrs.has(r.team) && teamConf.get(r.team) === conf,
+              )
+              const totalConf = aliveInConf.reduce((s, r) => s + r.conf_title_pct, 0)
+              if (totalConf > 0) {
+                for (const row of aliveInConf) {
+                  row.conf_title_pct = (row.conf_title_pct / totalConf) * 100
+                }
+              }
+            }
+          }
+        }
 
         const { error } = await db
           .from('sim_results')
