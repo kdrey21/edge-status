@@ -226,6 +226,7 @@ async function main() {
           espnGames,
           league.slug,
           league.playoffTeamsPerConference,
+          league.sport,
         )
 
         // -------------------------------------------------------------------

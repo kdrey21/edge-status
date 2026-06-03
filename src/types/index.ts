@@ -76,7 +76,7 @@ export const LEAGUES: LeagueConfig[] = [
     sport: 'basketball',
     espnPath: 'basketball/nba',
     totalGames: 82,
-    playoffTeamsPerConference: 8,
+    playoffTeamsPerConference: 10, // top 6 guaranteed + 4 play-in candidates
     oddsApiSport: 'basketball_nba_championship_winner',
     kalshiSeries: 'KXNBA',
     teams: [
