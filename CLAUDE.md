@@ -8,12 +8,11 @@ It documents current implementation state, known issues, and where to pick up ne
 ## What This Project Is
 
 A public, read-only sports playoff probability web app. No auth. No login.
-Users see playoff odds, division title odds, championship odds, and seed distributions
+Users see playoff odds, championship odds, market edge vs sportsbooks, and seed distributions
 for NBA, NHL, MLB, NFL, and MLS — all powered by Monte Carlo simulation.
 
 **Live URL:** https://kdrey21.github.io/edge-status
 **GitHub:** https://github.com/kdrey21/edge-status
-**Owner:** [@kdrey21](https://github.com/kdrey21)
 
 ---
 
@@ -67,19 +66,27 @@ The core API returns full standings year-round. Win/loss data comes from
 `records[0].summary` (e.g. `"94-68"`), not from a `stats` array.
 Team IDs are extracted from `$ref` URLs using regex.
 
-### Season Year Logic
-- Hockey/Basketball: season started previous October → use `year - 1` for months Jan–Sep
-  - e.g. April 2026 → NHL/NBA season = 2025 (the 2025-26 season)
-- Baseball/Soccer/Football: use current calendar year
-  - e.g. April 2026 → MLB season = 2026
+The standings records array also contains breakdown records used for tiebreakers:
+- MLB: `"Intradivision"` → division record, `"Intraleague"` → conference record
+- NBA: `"vs. Div."` → division record, `"vs. Conf."` → conference record
+Match by name substring (case-insensitive), not by ID (IDs vary by sport).
 
-This logic lives in `src/lib/espn.ts → seasonYear()`.
+### Season Year Logic
+ESPN stores multi-year seasons by their **ending year**:
+- e.g. the 2025-26 NBA/NHL season = ESPN season "2026"
+- `seasonYear()` in `espn.ts`: returns `year` for Jan–Sep, `year + 1` for Oct–Dec
+- Baseball/Soccer/Football: use current calendar year directly
+
+### fetchGroupIds — Division vs Conference Groups
+ESPN nests some leagues as conferences → divisions (children).
+`fetchGroupIds` detects `isConference: true` groups and recursively fetches children
+so teams get correct division labels (e.g. "Southwest", not "Western Conference").
+This is required for correct `div_title_pct` and tiebreaker calculations.
 
 ### MLS Core API Identifier
-MLS uses `espnPath: 'soccer/usa.1'` for the site API but `coreLeague: 'mls'`
+MLS uses `espnPath: 'soccer/usa.1'` for the site API but `coreLeague: 'usa.1'`
 for the core API. The `coreLeague` field in `LeagueConfig` overrides the league
 segment when building core API URLs.
-MLS currently returns 0 teams — still unresolved (see Known Issues).
 
 ### Supabase Client
 **IMPORTANT:** Two distinct contexts with different env vars:
@@ -92,23 +99,50 @@ MLS currently returns 0 teams — still unresolved (see Known Issues).
 The `NEXT_PUBLIC_*` vars are baked into the JS bundle at build time. They are safe
 to expose — the anon key is public by design; RLS protects all writes.
 
-### Simulation
-- 50,000 Monte Carlo simulations per league
-- Elo initialized from win percentage: `1500 + (winPct - 0.5) * 400`
-- Home advantage: +65 Elo points
-- Playoff bracket: best-of-7 series using `seriesWinProb()` calculation
-- Results written to Supabase using service role key (write-only, script only)
-- Frontend reads with anon key (read-only, RLS policy allows public SELECT)
+### Simulation Architecture
+
+**Sport-specific playoff seeding** (`src/lib/simulation.ts`):
+
+| Sport | Format | Series lengths |
+|---|---|---|
+| MLB | 3 div winners + 3 WCs per league; seeds 1-2 get byes | WC=best-of-3, DS=best-of-5, CS/WS=best-of-7 |
+| NFL | 4 div winners + 3 WCs per conf; seed 1 has bye | All single-elimination games |
+| NBA | Top 6 guaranteed; seeds 7-10 play-in tournament | All best-of-7 |
+| NHL | Top 3 per division + 2 WCs per conference | All best-of-7 |
+
+**Tiebreaker chain** (when teams tie on overall win%):
+1. Division win% — extracted from ESPN standings (`vs. Div.` / `Intradivision`)
+2. Conference win% — extracted from ESPN standings (`vs. Conf.` / `Intraleague`)
+3. Total wins (fallback)
+4. **TODO: H2H record** — primary tiebreaker in MLB/NFL/NBA rules; requires fetching
+   full season game logs. Not yet implemented.
+
+**Playoff state adjustment**: When regular season ends (gamesRemaining=0), the sim
+fetches ESPN's postseason scoreboard (`seasontype=3`) to identify teams still alive.
+Eliminated teams get championship_pct=0 and conf_title_pct=0; alive teams are
+renormalized. Guards against MLB returning regular season events (checks `season.type===3`).
+
+**Off-season market-only mode**: For leagues with no active season (NFL off-season),
+if `marketNameMap` is configured, the sim fetches Kalshi + Odds API futures and
+upserts market-only rows with null sim columns. Useful for year-round Super Bowl futures.
+
+### Schedule Coverage Known Gap
+`fetchUpcomingGames` fetches the next 30 days with `limit=500`. ESPN caps responses
+at 500 events per request. For MLB (162-game season), this covers ~1/3 of the
+remaining schedule. The sim simulates the rest blind (Elo-weighted random matchups).
+
+**TODO**: Paginate the schedule using multiple date-range requests to cover the full
+remaining season for MLB and MLS.
 
 ---
 
-## Database Schema (current — Phase 3)
+## Database Schema (current)
 
 ```sql
 create table sim_results (
   id                   uuid primary key default gen_random_uuid(),
-  team                 text not null,           -- team abbreviation e.g. "BOS"
-  league               text not null,           -- "nba", "nhl", "mlb", "nfl", "mls"
+  team                 text not null,
+  league               text not null,
   wins                 int default 0,
   losses               int default 0,
   games_back           numeric default 0,
@@ -116,30 +150,36 @@ create table sim_results (
   div_title_pct        numeric,
   conf_title_pct       numeric,
   championship_pct     numeric,
-  seed_distribution    jsonb,                   -- {"1": 12.3, "2": 18.1, ...}
+  seed_distribution    jsonb,
   magic_number         int,
   elim_number          int,
-  -- Phase 3 market edge columns (null when API keys not set or market unavailable)
-  kalshi_champ_pct     numeric,                 -- Kalshi field-normalized championship %
-  sportsbook_champ_pct numeric,                 -- Odds API multiplicatively de-vigged %
-  champ_ev_pct         numeric,                 -- EV%: kalshi_champ_pct − sportsbook_champ_pct
-  -- Legacy (kept for schema compat, no longer written)
-  implied_playoff_pct  numeric,
-  edge_pct             numeric,
+  kalshi_champ_pct     numeric,
+  sportsbook_champ_pct numeric,
+  champ_ev_pct         numeric,
+  implied_playoff_pct  numeric,   -- legacy, no longer written
+  edge_pct             numeric,   -- legacy, no longer written
   updated_at           timestamptz default now(),
   unique (team, league)
 );
 
+create table sim_snapshots (
+  id                   uuid primary key default gen_random_uuid(),
+  team                 text not null,
+  league               text not null,
+  snap_date            date not null default current_date,
+  playoff_pct          numeric,
+  div_title_pct        numeric,
+  championship_pct     numeric,
+  kalshi_champ_pct     numeric,
+  sportsbook_champ_pct numeric,
+  champ_ev_pct         numeric,
+  unique (team, league, snap_date)
+);
+
 alter table sim_results enable row level security;
 create policy "Public read" on sim_results for select using (true);
-```
-
-### Schema migration (run once in Supabase SQL editor):
-```sql
-alter table sim_results
-  add column if not exists kalshi_champ_pct     numeric,
-  add column if not exists sportsbook_champ_pct numeric,
-  add column if not exists champ_ev_pct         numeric;
+alter table sim_snapshots enable row level security;
+create policy "Public read" on sim_snapshots for select using (true);
 ```
 
 ---
@@ -157,56 +197,58 @@ Go to: `github.com/kdrey21/edge-status` → Settings → Secrets and variables �
 | `ODDS_API_KEY` | `simulate.yml` | The Odds API key (https://the-odds-api.com) — optional |
 | `KALSHI_API_TOKEN` | `simulate.yml` | Kalshi read-only Bearer token (kalshi.com → Settings → API) — optional |
 
-GitHub Pages must be enabled: repo Settings → Pages → Source: **GitHub Actions**
+**All secrets use individual values** — do NOT combine into a single multi-line secret.
+Each secret field contains only the value (no `KEY=` prefix).
 
-**Market data secrets are optional** — the sim runs fine without them; market columns will be null.
+GitHub Pages must be enabled: repo Settings → Pages → Source: **GitHub Actions**
 
 ---
 
 ## Current Status
 
 ### Phases Complete
-- **Phase 1** ✓ — GitHub Actions (simulate.yml + deploy-pages.yml), GitHub Pages static export, basePath /edge-status
-- **Phase 2** ✓ — MLS fixed (usa.1 + seasonType 1), inferConference rewritten sport-specific, synthetic schedule removed
-- **Phase 3** ✓ — Market edge engine: src/lib/odds.ts + src/lib/kalshi.ts, simulate.ts updated, StandingsTable shows Kalshi/Book/EV% columns + VALUE badge, TeamPageClient shows edge card
+- **Phase 1** ✓ — GitHub Actions (simulate.yml + deploy-pages.yml), GitHub Pages static export
+- **Phase 2** ✓ — MLS fixed, inferConference rewritten sport-specific, synthetic schedule removed
+- **Phase 3** ✓ — Market edge engine: Kalshi + Odds API, EV% columns, VALUE badge
+- **Phase 4** ✓ — Snapshot history (sim_snapshots table), sparklines, 7-day trend deltas
+
+### Architecture Improvements Since Phase 4
+- **Season year fix**: ESPN uses ending year for multi-year seasons (2025-26 → "2026")
+- **Division groups**: fetchGroupIds now fetches children of conference groups for real divisions
+- **Sport-specific seeding**: MLB div winners/WCs, NFL single-game, NBA play-in, NHL div-based
+- **Playoff elimination**: Eliminated teams get 0% championship/conf odds via ESPN scoreboard check
+- **Off-season futures**: NFL shows FUTURES badge with Kalshi/book odds year-round
+- **Tiebreakers**: Division and conference record extracted from ESPN, used in sim sorting
 
 ### Working ✓
-- NBA (30 teams), NHL (32 teams), MLB (30 teams), MLS simulate successfully
-- NFL correctly shows as inactive in off-season
-- Static export builds cleanly with `npm run build`
-- GitHub Actions workflows: `simulate.yml` (daily sim), `deploy-pages.yml` (on push)
-- Supabase RLS configured for public reads
-- Standings table: W, L, GB, Playoff %, Div %, Sim Champ %, Kalshi %, Book %, EV% (market cols auto-hide when no data)
-- Team detail page: stat cards, championship edge card (when data available), seed chart, upcoming schedule
-- Home page shows league cards with active/inactive badge
+- NBA (30 teams), NHL (32 teams), MLB (30 teams) simulate with correct playoff formats
+- NFL shows FUTURES mode with Super Bowl odds year-round
+- MLS simulates (standings work, schedule data sparse)
+- Playoff elimination correctly zeros out eliminated teams
+- Sparklines build up over daily sim runs
+- All 6 GitHub secrets set individually (no combined secret file)
 
-### Not Working / Known Issues
-- **MLS returns 0 teams** — core API identifier may be wrong or MLS season
-  not yet detected. Try: `curl -s "https://sports.core.api.espn.com/v2/sports/soccer/leagues/mls/seasons/2026/types/2/groups?limit=5"`
-- **NFL is off-season** — correct behavior, will auto-activate in September
-- **`inferConference()` is buggy** — MLB AL/NL detection is fragile; "central"/"south"
-  wrongly maps to Western Conference. Fix in Phase 2.
-- **Synthetic schedule fallback** — if ESPN future games are missing, simulation
-  fabricates a random schedule which corrupts results. Fix in Phase 2.
-- **ESPN CORS from browser** — team page schedule fetches ESPN from the browser.
-  If CORS fails, shows "No upcoming games found." gracefully.
-- **GitHub Pages not yet enabled** — user must enable Pages in repo settings after
-  first push of these workflow files.
+### Known Issues / TODO
+1. **H2H tiebreaker** — primary tiebreaker (MLB/NFL/NBA) not yet implemented; using div/conf record as proxy
+2. **MLB/MLS full schedule** — ESPN caps at 500 events/request; need pagination for full season
+3. **MLS schedule** — site API returns 0 upcoming games; needs different endpoint
+4. **"Most impactful games"** — per-team feature showing which upcoming games most swing playoff odds
+5. **Team position description** — natural language summary of a team's current playoff situation
+6. **Phase 5 UI** — team fan view, design refresh, mobile layout
 
-### Phase 2 (next)
-- **Fix MLS** — debug why core API returns 0 teams
-- **Fix `inferConference()`** — make it data-driven per sport
-- **Fix synthetic schedule** — mark results as low-confidence or skip if no real schedule
-- **Kalshi + Odds API edge finder** — new product thesis: market-vs-market discrepancy
-  - Kalshi championship/division markets → normalize to 100% → fair prob
-  - Sportsbook futures → de-vig (multiplicative) → implied prob
-  - Edge = where sportsbook implied prob < Kalshi fair prob
-  - Add schema columns: kalshi_fair_pct, sportsbook_implied_pct, ev_pct
+---
 
-### Phase 3 (future)
-- Snapshot history table for CLV tracking
-- Sparklines for playoff % trend
-- "Tracked edges" view showing how flagged values resolved
+## Upcoming Work (in priority order)
+
+1. **Fix MLB/MLS schedule pagination** — paginate ESPN scoreboard across multiple date ranges
+2. **Most impactful games** — for each upcoming game, measure swing in playoff_pct; surface top games
+3. **H2H tiebreaker** — fetch full season game logs, build H2H matrix, use as primary tiebreaker
+4. **Phase 5 — Team fan UI** — DO THIS LAST, after data is correct:
+   - Natural language team position card ("PHI is 1.5 GB of the wild card with 100 games left...")
+   - Most impactful upcoming games card on team page
+   - Tiebreaker context when teams are close ("PHI leads ATL in H2H 4-2")
+   - Design refresh (better hierarchy, mobile layout)
+   - All new data features need to be designed into the layout, not bolted on
 
 ---
 
@@ -222,12 +264,15 @@ scripts/
 src/
 ├── types/index.ts              # SimResult, LeagueTeam, Game, LeagueConfig, LEAGUES[]
 ├── lib/
-│   ├── espn.ts                 # ESPN Core API: standings + upcoming games
-│   ├── simulation.ts           # Monte Carlo engine (50k sims, Elo, bracket)
+│   ├── espn.ts                 # ESPN Core API: standings + upcoming games + playoff state
+│   ├── simulation.ts           # Monte Carlo engine (50k sims, sport-specific seeding/brackets)
+│   ├── odds.ts                 # The Odds API — de-vigged championship %
+│   ├── kalshi.ts               # Kalshi — field-normalized championship %
 │   └── supabase.ts             # Anon client helpers (NEXT_PUBLIC_ vars, browser-safe)
 ├── components/
-│   ├── LeagueCard.tsx          # Home page card, active/inactive badge
-│   ├── StandingsTable.tsx      # Sortable table, color-coded %, edge column
+│   ├── LeagueCard.tsx          # Home page card: IN SEASON / FUTURES / OFF SEASON badge
+│   ├── StandingsTable.tsx      # Sortable table, sparklines, market edge columns
+│   ├── Sparkline.tsx           # Inline SVG sparkline component
 │   ├── SeedChart.tsx           # Recharts bar chart (client-only, dynamic import)
 │   └── ScheduleTable.tsx       # Upcoming games + win probability per game
 └── app/
@@ -235,9 +280,10 @@ src/
     ├── page.tsx                # Home: league grid (client component)
     ├── globals.css             # Tailwind base + dark scrollbar
     ├── [league]/
-    │   └── page.tsx            # Standings for one league (client component)
+    │   ├── page.tsx            # League page server component (generateStaticParams)
+    │   └── LeaguePageClient.tsx # Standings table + sparklines
     └── [league]/[team]/
-        └── page.tsx            # Team detail: stat cards, seed chart, schedule (client component)
+        └── page.tsx            # Team detail: stat cards, edge card, seed chart, schedule
 ```
 
 ---
@@ -245,54 +291,24 @@ src/
 ## Common Commands
 
 ```bash
-# Local dev (requires .env.local with NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY)
+# Local dev
 npm run dev
 
-# Build check before pushing (requires NEXT_PUBLIC_* env vars)
+# Build check (requires NEXT_PUBLIC_* env vars)
 NEXT_PUBLIC_SUPABASE_URL=xxx NEXT_PUBLIC_SUPABASE_ANON_KEY=xxx npm run build
 
 # Run sim locally (writes to Supabase)
 SUPABASE_URL=xxx SUPABASE_SERVICE_ROLE_KEY=xxx npx tsx scripts/simulate.ts
 
-# Push to GitHub (triggers Vercel auto-deploy)
-git add -A && git commit -m "message" && git push
+# Trigger sim via GitHub CLI
+gh workflow run simulate.yml
 
-# If push rejected (remote ahead)
-git pull --rebase && git push
+# Watch sim run
+gh run watch <run-id> --exit-status
+
+# Push to GitHub (triggers deploy)
+git add -A && git commit -m "message" && git push
 
 # Test ESPN core API directly
 curl -s "https://sports.core.api.espn.com/v2/sports/baseball/leagues/mlb/seasons/2026/types/2/groups?limit=5"
-
-# Test MLS specifically
-curl -s "https://sports.core.api.espn.com/v2/sports/soccer/leagues/mls/seasons/2026/types/2/groups?limit=5"
 ```
-
----
-
-## Local Development
-
-Create `.env.local` at repo root with:
-```
-NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGc...
-```
-
-Then `npm run dev`. The sim script needs separate vars:
-```bash
-export SUPABASE_URL=https://xxxx.supabase.co
-export SUPABASE_SERVICE_ROLE_KEY=eyJhbGc...
-npx tsx scripts/simulate.ts
-```
-
----
-
-## What To Work On Next (Phase 2)
-
-In priority order:
-
-1. **Enable GitHub Pages** — repo Settings → Pages → Source: GitHub Actions
-2. **Add GitHub Actions secrets** — 4 secrets listed above
-3. **Trigger first deploy** — push to main or run `workflow_dispatch` on deploy-pages.yml
-4. **Fix MLS** — debug core API returning 0 teams
-5. **Fix `inferConference()`** — make MLB AL/NL and other conference detection reliable
-6. **Wire Kalshi + Odds API** — new edge finder (market vs market discrepancy)
