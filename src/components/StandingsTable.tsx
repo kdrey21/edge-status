@@ -36,6 +36,16 @@ function evColor(ev: number): string {
   return 'text-[#8892aa]'
 }
 
+// Map league slug → ESPN logo sport path segment
+const LOGO_SPORT: Record<string, string> = {
+  nba: 'nba', nhl: 'nhl', mlb: 'mlb', nfl: 'nfl', mls: 'soccer',
+}
+
+function espnLogoUrl(league: string, abbr: string): string {
+  const sport = LOGO_SPORT[league] ?? league
+  return `https://a.espncdn.com/i/teamlogos/${sport}/500/${abbr.toLowerCase()}.png`
+}
+
 function fmt(n: number | null, decimals = 1): string {
   if (n == null) return '—'
   // Cap at >99% — "100.0%" looks wrong to users even when technically accurate
@@ -71,8 +81,9 @@ export default function StandingsTable({ results, league, snapshots, config }: P
   const hasSimData = results.some(r => r.playoff_pct != null)
   const hasSnapshots = snapshots != null && snapshots.size > 0
 
-  // Default sort: playoff_pct for active leagues, sportsbook odds for futures-only
-  const defaultSort: SortKey = hasSimData ? 'playoff_pct' : 'sportsbook_champ_pct'
+  // Default sort: championship % (best overall signal — surfaces finals teams correctly)
+  // Falls back to sportsbook odds for futures-only leagues (NFL off-season)
+  const defaultSort: SortKey = hasSimData ? 'championship_pct' : 'sportsbook_champ_pct'
   const [sortKey, setSortKey] = useState<SortKey>(defaultSort)
 
   function sortRows(rows: SimResult[]): SimResult[] {
@@ -176,13 +187,24 @@ export default function StandingsTable({ results, league, snapshots, config }: P
                     key={r.team}
                     className={`transition-colors hover:bg-surface-raised ${i % 2 === 0 ? '' : 'bg-surface-card/30'}`}
                   >
-                    {/* Sticky team name */}
-                    <td className={`sticky left-0 z-10 px-4 py-3 ${i % 2 === 0 ? 'bg-surface' : 'bg-[#0e1019]'}`}>
+                    {/* Sticky team name + logo */}
+                    <td className={`sticky left-0 z-10 px-3 py-2.5 ${i % 2 === 0 ? 'bg-surface' : 'bg-[#0e1019]'}`}>
                       <Link
                         href={`/${league}/${r.team.toLowerCase()}`}
-                        className="font-display font-bold text-[#eef0f8] hover:text-brand transition-colors"
+                        className="flex items-center gap-2 group min-w-0"
                       >
-                        {r.team}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={espnLogoUrl(league, r.team)}
+                          alt=""
+                          width={20}
+                          height={20}
+                          className="w-5 h-5 shrink-0 object-contain"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        />
+                        <span className="font-display font-bold text-[#eef0f8] group-hover:text-brand transition-colors">
+                          {r.team}
+                        </span>
                       </Link>
                     </td>
 
