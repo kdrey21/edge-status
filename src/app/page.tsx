@@ -10,6 +10,15 @@ const LEAGUE_NAMES: Record<string, string> = {
   nba: 'NBA', nhl: 'NHL', mlb: 'MLB', nfl: 'NFL', mls: 'MLS',
 }
 
+const LOGO_SPORT: Record<string, string> = {
+  nba: 'nba', nhl: 'nhl', mlb: 'mlb', nfl: 'nfl', mls: 'soccer',
+}
+
+function espnLogoUrl(league: string, abbr: string): string {
+  const sport = LOGO_SPORT[league] ?? league
+  return `https://a.espncdn.com/i/teamlogos/${sport}/500/${abbr.toLowerCase()}.png`
+}
+
 function EdgeRow({ edge }: { edge: TopEdge }) {
   return (
     <Link
@@ -20,6 +29,15 @@ function EdgeRow({ edge }: { edge: TopEdge }) {
         <span className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a] w-8 shrink-0">
           {LEAGUE_NAMES[edge.league] ?? edge.league.toUpperCase()}
         </span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={espnLogoUrl(edge.league, edge.team)}
+          alt=""
+          width={24}
+          height={24}
+          className="w-6 h-6 shrink-0 object-contain"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+        />
         <span className="font-display font-bold text-[#eef0f8] group-hover:text-brand transition-colors">
           {edge.team}
         </span>

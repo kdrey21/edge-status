@@ -4,6 +4,15 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { getLeague, type SimResult, type LeagueConfig } from '@/types'
+
+const LOGO_SPORT: Record<string, string> = {
+  nba: 'nba', nhl: 'nhl', mlb: 'mlb', nfl: 'nfl', mls: 'soccer',
+}
+
+function espnLogoUrl(league: string, abbr: string): string {
+  const sport = LOGO_SPORT[league] ?? league
+  return `https://a.espncdn.com/i/teamlogos/${sport}/500/${abbr.toLowerCase()}.png`
+}
 import { getTeamResult, getLeagueResults, getLeagueImportantGames, getTeamSnapshots, type ImportantGame, type SnapPoint } from '@/lib/supabase'
 import ImportantGames from '@/components/ImportantGames'
 import ScheduleTable from '@/components/ScheduleTable'
@@ -264,8 +273,19 @@ export default function TeamPageClient({ league, team }: Props) {
         >
           ← {config.name}
         </Link>
-        <h1 className="font-display text-4xl font-bold tracking-tight text-[#eef0f8] mt-2">{teamAbbr}</h1>
-        <p className="text-[#484f6a] text-sm">{config.name} · Sim-based probabilities</p>
+        <div className="flex items-center gap-3 mt-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={espnLogoUrl(league, teamAbbr)}
+            alt=""
+            width={48}
+            height={48}
+            className="w-12 h-12 shrink-0 object-contain"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+          />
+          <h1 className="font-display text-4xl font-bold tracking-tight text-[#eef0f8]">{teamAbbr}</h1>
+        </div>
+        <p className="text-[#484f6a] text-sm mt-1">{config.name} · Sim-based probabilities</p>
       </div>
 
       {simLoading ? (
