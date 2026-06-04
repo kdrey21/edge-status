@@ -337,6 +337,21 @@ export async function fetchStandings(
     }),
   )
 
+  // Compute games back within each division.
+  // GB = ((leaderWins - teamWins) + (teamLosses - leaderLosses)) / 2
+  // Division leader gets 0; all others get a positive value.
+  const divGroups = new Map<string, LeagueTeam[]>()
+  for (const t of allTeams) {
+    if (!divGroups.has(t.division)) divGroups.set(t.division, [])
+    divGroups.get(t.division)!.push(t)
+  }
+  for (const divTeams of divGroups.values()) {
+    const leader = divTeams.reduce((best, t) => t.winPct > best.winPct ? t : best)
+    for (const t of divTeams) {
+      t.gamesBack = ((leader.wins - t.wins) + (t.losses - leader.losses)) / 2
+    }
+  }
+
   return allTeams
 }
 
