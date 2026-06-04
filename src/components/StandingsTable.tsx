@@ -130,6 +130,11 @@ export default function StandingsTable({ results, league, snapshots, config }: P
                 {col('W', 'wins', 'text-right')}
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-400">L</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-400">GB</th>
+                {hasSnapshots && (
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-400">
+                    Trend
+                  </th>
+                )}
                 {col('Playoff %', 'playoff_pct', 'text-right')}
                 {col('Sim Champ %', 'championship_pct', 'text-right', 'Monte Carlo simulation championship probability')}
               </>
@@ -189,11 +194,16 @@ export default function StandingsTable({ results, league, snapshots, config }: P
                             : '—'}
                         </td>
 
+                        {hasSnapshots && (
+                          <td className="px-4 py-3 text-right">
+                            {sparkVals.length >= 2
+                              ? <Sparkline values={sparkVals} />
+                              : <span className="text-gray-700 text-xs">—</span>
+                            }
+                          </td>
+                        )}
                         <td className={`px-4 py-3 text-right font-bold text-base ${pctColor(r.playoff_pct)}`}>
-                          <div className="flex items-center justify-end gap-1.5">
-                            {hasSnapshots && sparkVals.length >= 2 && (
-                              <Sparkline values={sparkVals} />
-                            )}
+                          <div className="flex items-center justify-end gap-1">
                             <span>{fmt(r.playoff_pct)}</span>
                             {hasSnapshots && (
                               <Delta

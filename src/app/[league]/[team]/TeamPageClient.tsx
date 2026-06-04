@@ -4,13 +4,14 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { getLeague, type SimResult, type LeagueConfig } from '@/types'
-import { getTeamResult, getLeagueResults, getLeagueImportantGames, type ImportantGame } from '@/lib/supabase'
+import { getTeamResult, getLeagueResults, getLeagueImportantGames, getTeamSnapshots, type ImportantGame, type SnapPoint } from '@/lib/supabase'
 import ImportantGames from '@/components/ImportantGames'
 import ScheduleTable from '@/components/ScheduleTable'
 import type { Game, LeagueTeam } from '@/types'
 
-// SeedChart uses Recharts which requires browser APIs — load client-side only
+// Recharts components load client-side only
 const SeedChart = dynamic(() => import('@/components/SeedChart'), { ssr: false })
+const TrendChart = dynamic(() => import('@/components/TrendChart'), { ssr: false })
 
 interface Props {
   league: string
@@ -166,6 +167,7 @@ export default function TeamPageClient({ league, team }: Props) {
 
   const [result, setResult] = useState<SimResult | null>(null)
   const [allResults, setAllResults] = useState<SimResult[]>([])
+  const [snapshots, setSnapshots] = useState<SnapPoint[]>([])
   const [simLoading, setSimLoading] = useState(true)
   const [importantGames, setImportantGames] = useState<ImportantGame[]>([])
 
@@ -182,11 +184,13 @@ export default function TeamPageClient({ league, team }: Props) {
       getTeamResult(league, teamAbbr),
       getLeagueResults(league),
       getLeagueImportantGames(league, teamAbbr, 10),
+      getTeamSnapshots(league, teamAbbr, 30),
     ])
-      .then(([res, all, imp]) => {
+      .then(([res, all, imp, snaps]) => {
         setResult(res)
         setAllResults(all)
         setImportantGames(imp)
+        setSnapshots(snaps)
       })
       .catch(() => {})
       .finally(() => setSimLoading(false))
@@ -386,6 +390,19 @@ export default function TeamPageClient({ league, team }: Props) {
           <div className="rounded-xl border border-surface-border bg-surface-card p-6 mb-6">
             <h2 className="text-lg font-bold text-white mb-4">Seed Distribution</h2>
             <SeedChart seedDistribution={result.seed_distribution} />
+          </div>
+
+          {/* Trend chart — odds over time */}
+          <div className="rounded-xl border border-surface-border bg-surface-card p-6 mb-6">
+            <h2 className="text-lg font-bold text-white mb-1">Odds Trend</h2>
+            <p className="text-xs text-gray-500 mb-4">
+              30-day history · updated daily
+            </p>
+            <TrendChart
+              snapshots={snapshots}
+              showPlayoff={result.playoff_pct != null}
+              showChamp={result.championship_pct != null}
+            />
           </div>
 
           {/* Most impactful upcoming games for this team */}

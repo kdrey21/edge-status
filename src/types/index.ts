@@ -158,16 +158,19 @@ export const LEAGUES: LeagueConfig[] = [
     ],
     divisionMap: {
       BAL:'AL East',  BOS:'AL East',  NYY:'AL East',  TB:'AL East',   TOR:'AL East',
-      CWS:'AL Central',CLE:'AL Central',DET:'AL Central',KC:'AL Central',MIN:'AL Central',
-      HOU:'AL West',  LAA:'AL West',  OAK:'AL West',  SEA:'AL West',  TEX:'AL West',
+      // White Sox: ESPN uses CHW; CWS kept as alias for any historical rows
+      CHW:'AL Central',CWS:'AL Central',CLE:'AL Central',DET:'AL Central',KC:'AL Central',MIN:'AL Central',
+      HOU:'AL West',  LAA:'AL West',
+      // Athletics: ESPN uses ATH after Sacramento move; OAK kept as alias
+      ATH:'AL West',  OAK:'AL West',  SEA:'AL West',  TEX:'AL West',
       ATL:'NL East',  MIA:'NL East',  NYM:'NL East',  PHI:'NL East',  WSH:'NL East',
       CHC:'NL Central',CIN:'NL Central',MIL:'NL Central',PIT:'NL Central',STL:'NL Central',
       ARI:'NL West',  COL:'NL West',  LAD:'NL West',  SD:'NL West',   SF:'NL West',
     },
     conferenceMap: {
       BAL:'AL', BOS:'AL', NYY:'AL', TB:'AL',  TOR:'AL',
-      CWS:'AL', CLE:'AL', DET:'AL', KC:'AL',  MIN:'AL',
-      HOU:'AL', LAA:'AL', OAK:'AL', SEA:'AL', TEX:'AL',
+      CHW:'AL', CWS:'AL', CLE:'AL', DET:'AL', KC:'AL',  MIN:'AL',
+      HOU:'AL', LAA:'AL', ATH:'AL', OAK:'AL', SEA:'AL', TEX:'AL',
       ATL:'NL', MIA:'NL', NYM:'NL', PHI:'NL', WSH:'NL',
       CHC:'NL', CIN:'NL', MIL:'NL', PIT:'NL', STL:'NL',
       ARI:'NL', COL:'NL', LAD:'NL', SD:'NL',  SF:'NL',

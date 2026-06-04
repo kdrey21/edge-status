@@ -94,6 +94,31 @@ export interface SnapPoint {
 }
 
 /**
+ * Fetch the last `days` days of snapshots for a single team.
+ * Returns rows sorted oldest→newest for trend charts.
+ */
+export async function getTeamSnapshots(
+  league: string,
+  team: string,
+  days = 30,
+): Promise<SnapPoint[]> {
+  const since = new Date()
+  since.setDate(since.getDate() - days)
+  const sinceStr = since.toISOString().split('T')[0]
+
+  const { data, error } = await getAnonClient()
+    .from('sim_snapshots')
+    .select('team, snap_date, playoff_pct, championship_pct, kalshi_champ_pct, champ_ev_pct')
+    .eq('league', league)
+    .eq('team', team)
+    .gte('snap_date', sinceStr)
+    .order('snap_date', { ascending: true })
+
+  if (error || !data) return []
+  return data as SnapPoint[]
+}
+
+/**
  * Fetch the last `days` days of snapshots for a league.
  * Returns rows sorted oldest→newest so sparklines render left-to-right.
  */
