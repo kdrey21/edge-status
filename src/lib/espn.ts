@@ -243,7 +243,19 @@ async function fetchGroupStandings(
       // Win percentage — for soccer, draws count as half a win
       const effectiveWins = sport === 'soccer' ? wins + ties * 0.5 : wins
       const winPct = gamesPlayed > 0 ? effectiveWins / gamesPlayed : 0
-      const elo = 1500 + (winPct - 0.5) * 400
+
+      // Elo with regression to the mean.
+      // Early in the season a 15-2 team has a wildly inflated win% that will
+      // push their simulated playoff probability toward 99%. We correct this by
+      // blending each team's record with phantom "average" (0.500) games equal
+      // to 20% of the season length. As more real games are played the phantom
+      // games become insignificant; by mid-season their effect is minor.
+      //   MLB example (totalGames=162): 32 phantom games added.
+      //   A 15-2 team (17 GP) becomes effectively 31-49 → .633 adj win pct
+      //   instead of raw .882 — a much more defensible early-season Elo.
+      const regressionGames = Math.round(totalGames * 0.20)
+      const adjWinPct = (effectiveWins + regressionGames * 0.5) / (gamesPlayed + regressionGames)
+      const elo = 1500 + (adjWinPct - 0.5) * 400
 
       // Extract tiebreaker records from ESPN breakdown records.
       // ESPN names vary by sport: "vs. Div." / "Intradivision" for division;
