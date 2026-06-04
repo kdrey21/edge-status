@@ -14,7 +14,6 @@ function espnLogoUrl(league: string, abbr: string): string {
   return `https://a.espncdn.com/i/teamlogos/${sport}/500/${abbr.toLowerCase()}.png`
 }
 import { getTeamResult, getLeagueResults, getLeagueImportantGames, getTeamSnapshots, type ImportantGame, type SnapPoint } from '@/lib/supabase'
-import ImportantGames from '@/components/ImportantGames'
 import ScheduleTable from '@/components/ScheduleTable'
 import type { Game, LeagueTeam } from '@/types'
 
@@ -315,6 +314,79 @@ export default function TeamPageClient({ league, team }: Props) {
             ) : null
           })()}
 
+          {/* Division standings */}
+          {allResults.length > 0 && config.divisionMap && (() => {
+            const division = config.divisionMap[teamAbbr]
+            if (!division) return null
+            const divTeams = allResults
+              .filter(r => config.divisionMap![r.team] === division)
+              .sort((a, b) => (a.games_back ?? 0) - (b.games_back ?? 0))
+            if (divTeams.length === 0) return null
+            return (
+              <div className="rounded-xl border border-surface-border bg-surface-card shadow-card p-5 mb-6">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a] mb-3">
+                  {division}
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-surface-border">
+                        <th className="pb-2 text-left text-[10px] font-bold uppercase tracking-wider text-[#484f6a]">Team</th>
+                        <th className="pb-2 text-right text-[10px] font-bold uppercase tracking-wider text-[#484f6a]">W</th>
+                        <th className="pb-2 text-right text-[10px] font-bold uppercase tracking-wider text-[#484f6a]">L</th>
+                        <th className="pb-2 text-right text-[10px] font-bold uppercase tracking-wider text-[#484f6a]">GB</th>
+                        <th className="pb-2 text-right text-[10px] font-bold uppercase tracking-wider text-[#484f6a]">Playoff%</th>
+                        <th className="pb-2 text-right text-[10px] font-bold uppercase tracking-wider text-[#484f6a]">Champ%</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surface-border">
+                      {divTeams.map(r => {
+                        const isMe = r.team === teamAbbr
+                        return (
+                          <tr
+                            key={r.team}
+                            className={`transition-colors ${isMe ? 'bg-brand/10' : 'hover:bg-surface-raised'}`}
+                          >
+                            <td className="py-2">
+                              <Link
+                                href={`/${league}/${r.team.toLowerCase()}`}
+                                className="flex items-center gap-2 group"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={espnLogoUrl(league, r.team)}
+                                  alt=""
+                                  width={18}
+                                  height={18}
+                                  className="w-4.5 h-4.5 object-contain shrink-0"
+                                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                                />
+                                <span className={`font-bold text-sm ${isMe ? 'text-brand' : 'text-[#eef0f8] group-hover:text-brand'} transition-colors`}>
+                                  {r.team}
+                                </span>
+                              </Link>
+                            </td>
+                            <td className="py-2 text-right text-[#8892aa] font-mono text-xs">{r.wins ?? '—'}</td>
+                            <td className="py-2 text-right text-[#8892aa] font-mono text-xs">{r.losses ?? '—'}</td>
+                            <td className="py-2 text-right text-[#484f6a] font-mono text-xs">
+                              {r.games_back != null ? (r.games_back === 0 ? '—' : r.games_back.toFixed(1)) : '—'}
+                            </td>
+                            <td className={`py-2 text-right font-bold font-mono text-xs ${r.playoff_pct != null ? pctColor(r.playoff_pct) : 'text-[#484f6a]'}`}>
+                              {r.playoff_pct != null ? r.playoff_pct.toFixed(1) + '%' : '—'}
+                            </td>
+                            <td className={`py-2 text-right font-mono text-xs ${r.championship_pct != null ? pctColor(r.championship_pct) : 'text-[#484f6a]'}`}>
+                              {r.championship_pct != null ? r.championship_pct.toFixed(1) + '%' : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          })()}
+
           {/* Key stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             <StatCard
@@ -422,25 +494,71 @@ export default function TeamPageClient({ league, team }: Props) {
             />
           </div>
 
-          {/* Most impactful upcoming games for this team */}
-          {importantGames.length > 0 && (
-            <div className="mb-6">
-              <ImportantGames games={importantGames} focusTeam={teamAbbr} />
-            </div>
-          )}
         </>
       )}
 
-      {/* Upcoming schedule — fetched from ESPN, loads separately */}
-      <div className="rounded-xl border border-surface-border bg-surface-card p-6">
-        <h2 className="text-lg font-bold text-white mb-4">Upcoming Schedule</h2>
+      {/* Upcoming schedule — next 5 games with playoff impact */}
+      <div className="rounded-xl border border-surface-border bg-surface-card p-5">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a] mb-3">
+          Upcoming Schedule
+        </p>
         {scheduleLoading ? (
-          <p className="text-gray-500 text-sm">Loading schedule…</p>
-        ) : scheduleGames.length === 0 ? (
-          <p className="text-gray-500 text-sm">No upcoming games found.</p>
-        ) : (
-          <ScheduleTable games={scheduleGames} />
-        )}
+          <p className="text-[#484f6a] text-sm">Loading schedule…</p>
+        ) : (() => {
+          // Cross-reference ESPN schedule with game_importance playoff swings
+          const gamesWithSwing = scheduleGames.slice(0, 5).map(g => {
+            const opp = g.opponent.toUpperCase()
+            const imp = importantGames.find(ig =>
+              (ig.home_team === teamAbbr && ig.away_team === opp) ||
+              (ig.away_team === teamAbbr && ig.home_team === opp)
+            )
+            const swing = imp
+              ? (imp.home_team === teamAbbr ? imp.home_playoff_swing : imp.away_playoff_swing)
+              : null
+            return { ...g, playoffSwing: swing }
+          })
+
+          // Fallback: if ESPN fetch failed (CORS), show tracked games from Supabase sorted by date
+          if (gamesWithSwing.length === 0) {
+            const fallback = [...importantGames]
+              .sort((a, b) => a.game_date.localeCompare(b.game_date))
+              .slice(0, 5)
+              .map(ig => {
+                const isHome = ig.home_team === teamAbbr
+                const opp = isHome ? ig.away_team : ig.home_team
+                const swing = isHome ? ig.home_playoff_swing : ig.away_playoff_swing
+                return {
+                  date: ig.game_date,
+                  opponent: opp,
+                  isHome,
+                  winProb: 0.5, // unknown without live Elo
+                  playoffSwing: swing,
+                }
+              })
+
+            if (fallback.length === 0) {
+              return <p className="text-[#484f6a] text-sm py-4 text-center">No upcoming games found.</p>
+            }
+
+            return (
+              <>
+                <ScheduleTable games={fallback} limit={5} />
+                <p className="text-[10px] text-[#484f6a] mt-3">
+                  Win probability unavailable (ESPN schedule not loaded). Showing tracked games only.
+                </p>
+              </>
+            )
+          }
+
+          return (
+            <>
+              <ScheduleTable games={gamesWithSwing} limit={5} />
+              <p className="text-[10px] text-[#484f6a] mt-3">
+                Playoff Swing = change in playoff % if this team wins vs loses · from 50k sims
+              </p>
+            </>
+          )
+        })()}
       </div>
     </div>
   )
