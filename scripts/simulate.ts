@@ -97,6 +97,10 @@ async function main() {
           `  [${league.slug.toUpperCase()}] H2H matrix: ${completedGames.length} completed games → ${h2hMatrix.size} teams with wins`,
         )
 
+        // Log a sample of games_back values to verify the fix is working
+        const gbSample = teams.slice(0, 5).map(t => `${t.abbreviation}:${t.gamesBack.toFixed(1)}`).join(' ')
+        console.log(`  [${league.slug.toUpperCase()}] GB sample: ${gbSample}`)
+
         if (!isLeagueActive(teams)) {
           // Off-season: skip simulation, but still fetch market futures if configured
           const canFetchOffSeasonMarkets =
