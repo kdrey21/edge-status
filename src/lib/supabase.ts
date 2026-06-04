@@ -90,6 +90,7 @@ export interface SnapPoint {
   playoff_pct: number | null
   championship_pct: number | null
   kalshi_champ_pct: number | null
+  sportsbook_champ_pct: number | null
   champ_ev_pct: number | null
 }
 
@@ -108,7 +109,7 @@ export async function getTeamSnapshots(
 
   const { data, error } = await getAnonClient()
     .from('sim_snapshots')
-    .select('team, snap_date, playoff_pct, championship_pct, kalshi_champ_pct, champ_ev_pct')
+    .select('team, snap_date, playoff_pct, championship_pct, kalshi_champ_pct, sportsbook_champ_pct, champ_ev_pct')
     .eq('league', league)
     .eq('team', team)
     .gte('snap_date', sinceStr)
@@ -132,7 +133,7 @@ export async function getLeagueSnapshots(
 
   const { data, error } = await getAnonClient()
     .from('sim_snapshots')
-    .select('team, snap_date, playoff_pct, championship_pct, kalshi_champ_pct, champ_ev_pct')
+    .select('team, snap_date, playoff_pct, championship_pct, kalshi_champ_pct, sportsbook_champ_pct, champ_ev_pct')
     .eq('league', league)
     .gte('snap_date', sinceStr)
     .order('snap_date', { ascending: true })

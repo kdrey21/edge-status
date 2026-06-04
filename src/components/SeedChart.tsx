@@ -11,6 +11,17 @@ import {
   Cell,
 } from 'recharts'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function SeedTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="rounded-lg border border-surface-border bg-surface-raised px-3 py-2 text-xs shadow-xl">
+      <p className="text-[#8892aa] mb-1 font-semibold">{label}</p>
+      <p className="text-[#eef0f8] font-bold">{payload[0].value.toFixed(1)}% probability</p>
+    </div>
+  )
+}
+
 interface Props {
   seedDistribution: Record<string, number>
 }
@@ -56,14 +67,8 @@ export default function SeedChart({ seedDistribution }: Props) {
           width={44}
         />
         <Tooltip
-          contentStyle={{
-            backgroundColor: '#1a1d27',
-            border: '1px solid #2a2d3a',
-            borderRadius: '8px',
-            color: '#fff',
-          }}
-          formatter={(value: number) => [`${value}%`, 'Probability']}
-          cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+          content={<SeedTooltip />}
+          cursor={{ fill: 'rgba(255,255,255,0.06)' }}
         />
         <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
           {data.map((entry, index) => (

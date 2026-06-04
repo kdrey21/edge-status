@@ -18,6 +18,8 @@ interface Props {
   showPlayoff?: boolean
   /** Show championship_pct line */
   showChamp?: boolean
+  /** Show sportsbook_champ_pct line */
+  showBook?: boolean
 }
 
 function fmtDate(dateStr: string): string {
@@ -42,7 +44,7 @@ function CustomTooltip({ active, payload, label }: any) {
   )
 }
 
-export default function TrendChart({ snapshots, showPlayoff = true, showChamp = true }: Props) {
+export default function TrendChart({ snapshots, showPlayoff = true, showChamp = true, showBook = true }: Props) {
   if (snapshots.length < 2) {
     return (
       <p className="text-sm text-gray-500 py-4 text-center">
@@ -52,6 +54,7 @@ export default function TrendChart({ snapshots, showPlayoff = true, showChamp = 
   }
 
   const hasKalshi = snapshots.some(s => s.kalshi_champ_pct != null)
+  const hasBook   = showBook && snapshots.some(s => s.sportsbook_champ_pct != null)
   const hasPlayoff = showPlayoff && snapshots.some(s => s.playoff_pct != null)
   const hasChamp = showChamp && snapshots.some(s => s.championship_pct != null)
 
@@ -60,6 +63,7 @@ export default function TrendChart({ snapshots, showPlayoff = true, showChamp = 
     ...(hasPlayoff && s.playoff_pct != null ? { 'Playoff %': +s.playoff_pct.toFixed(1) } : {}),
     ...(hasChamp && s.championship_pct != null ? { 'Sim Champ %': +s.championship_pct.toFixed(1) } : {}),
     ...(hasKalshi && s.kalshi_champ_pct != null ? { 'Kalshi %': +s.kalshi_champ_pct.toFixed(1) } : {}),
+    ...(hasBook && s.sportsbook_champ_pct != null ? { 'Book %': +s.sportsbook_champ_pct.toFixed(1) } : {}),
   }))
 
   return (
@@ -110,6 +114,17 @@ export default function TrendChart({ snapshots, showPlayoff = true, showChamp = 
             stroke="#f59e0b"
             strokeWidth={2}
             dot={false}
+            connectNulls
+          />
+        )}
+        {hasBook && (
+          <Line
+            type="monotone"
+            dataKey="Book %"
+            stroke="#f87171"
+            strokeWidth={2}
+            dot={false}
+            strokeDasharray="4 3"
             connectNulls
           />
         )}
