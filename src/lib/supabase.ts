@@ -141,6 +141,37 @@ export async function getLeagueSnapshots(
   return data as SnapPoint[]
 }
 
+// ---------------------------------------------------------------------------
+// Cross-league top edges
+// ---------------------------------------------------------------------------
+
+export interface TopEdge {
+  league: string
+  team: string
+  kalshi_champ_pct: number
+  sportsbook_champ_pct: number
+  champ_ev_pct: number
+}
+
+/**
+ * Returns the top N teams by EV% (Kalshi − Sportsbook) across all leagues.
+ * Only returns rows where both market prices exist and EV% is positive.
+ */
+export async function getTopEdges(limit = 6): Promise<TopEdge[]> {
+  const { data, error } = await getAnonClient()
+    .from('sim_results')
+    .select('league, team, kalshi_champ_pct, sportsbook_champ_pct, champ_ev_pct')
+    .not('champ_ev_pct', 'is', null)
+    .not('kalshi_champ_pct', 'is', null)
+    .not('sportsbook_champ_pct', 'is', null)
+    .gt('champ_ev_pct', 0)
+    .order('champ_ev_pct', { ascending: false })
+    .limit(limit)
+
+  if (error || !data) return []
+  return data as TopEdge[]
+}
+
 export async function getAllLeaguesSummary(): Promise<
   { league: string; count: number; updated_at: string; hasSim: boolean }[]
 > {

@@ -91,6 +91,11 @@ export default function LeaguePageClient({ league }: Props) {
           {config.name} {hasSimData ? 'Playoff Odds' : 'Championship Futures'}
         </h1>
         {updatedAt && <p className="text-gray-500 text-sm">Last updated {updatedAt}</p>}
+        <p className="text-xs text-gray-600 mt-1">
+          {hasSimData
+            ? 'Playoff % from 50,000 Monte Carlo sims · Kalshi = prediction market reference · EV% = where markets disagree'
+            : 'Kalshi = regulated prediction market · Book = de-vigged sportsbook consensus · EV% = Kalshi − Book'}
+        </p>
       </div>
 
       {loading ? (
@@ -112,35 +117,43 @@ export default function LeaguePageClient({ league }: Props) {
         </div>
       ) : (
         <>
-          {hasSimData && (
-            <div className="mb-4 grid grid-cols-3 gap-3 sm:grid-cols-6">
-              {[
-                { label: 'Green', desc: '>60% playoff' },
-                { label: 'Yellow', desc: '40–60%' },
-                { label: 'Red', desc: '<40%' },
-              ].map(({ label, desc }) => (
-                <div key={label} className="flex items-center gap-2 text-xs text-gray-500">
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      label === 'Green'
-                        ? 'bg-green-400'
-                        : label === 'Yellow'
-                        ? 'bg-yellow-400'
-                        : 'bg-red-400'
-                    }`}
-                  />
-                  {desc}
+          {/* Market edges callout — top EV% teams in this league */}
+          {(() => {
+            const topEdges = [...results]
+              .filter(r => r.champ_ev_pct != null && r.champ_ev_pct > 3)
+              .sort((a, b) => (b.champ_ev_pct ?? 0) - (a.champ_ev_pct ?? 0))
+              .slice(0, 3)
+            if (topEdges.length === 0) return null
+            return (
+              <div className="mb-5 rounded-xl border border-green-500/20 bg-green-500/5 p-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-green-400 mb-2">
+                  Market edges today
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  {topEdges.map(r => (
+                    <Link
+                      key={r.team}
+                      href={`/${league}/${r.team.toLowerCase()}`}
+                      className="flex items-center gap-2 rounded-lg bg-surface-card border border-surface-border px-3 py-2 hover:border-green-500/40 transition-colors"
+                    >
+                      <span className="font-bold text-white text-sm">{r.team}</span>
+                      <span className="text-green-400 font-bold text-sm">
+                        +{r.champ_ev_pct!.toFixed(1)}%
+                      </span>
+                      <span className="text-[10px] text-gray-500">
+                        K:{r.kalshi_champ_pct?.toFixed(1)}% B:{r.sportsbook_champ_pct?.toFixed(1)}%
+                      </span>
+                    </Link>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-          {snapshots.size > 0 && (
-            <p className="text-xs text-gray-600 mb-1">
-              Sparklines show 14-day trend. ▲▼ = change vs oldest data point.
-            </p>
-          )}
+              </div>
+            )
+          })()}
+
           <p className="text-xs text-gray-600 mb-3">
-            Click a column header to sort. Click a team to see full breakdown.
+            {hasSimData
+              ? 'Playoff % color: green >60% · yellow 40–60% · red <40% · Click a column to sort · Click a team for full breakdown'
+              : 'Sorted by Sportsbook odds · Click any team for full breakdown'}
           </p>
           <StandingsTable results={results} league={league} snapshots={snapshots} config={config} />
           {importantGames.length > 0 && (
