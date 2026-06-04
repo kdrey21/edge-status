@@ -2,31 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg: #0f1117;
-  --card: #1a1d27;
-  --border: #2a2d3a;
-}
-
 html {
   color-scheme: dark;
 }
 
 body {
-  background-color: #0f1117;
-  color: #e5e7eb;
-  font-family: Inter, system-ui, -apple-system, sans-serif;
+  background-color: #0b0d14;
+  color: #eef0f8;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-variant-numeric: tabular-nums;
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: #0f1117;
-}
-::-webkit-scrollbar-thumb {
-  background: #2a2d3a;
-  border-radius: 3px;
-}
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #0b0d14; }
+::-webkit-scrollbar-thumb { background: #1e2336; border-radius: 3px; }
+
+/* Tabular numbers everywhere in tables */
+table { font-variant-numeric: tabular-nums; }
+
+/* Display font utility */
+.font-display { font-family: var(--font-display), system-ui, sans-serif; }

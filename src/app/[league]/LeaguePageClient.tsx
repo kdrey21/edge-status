@@ -87,7 +87,7 @@ export default function LeaguePageClient({ league }: Props) {
         <Link href="/" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">
           ← All Leagues
         </Link>
-        <h1 className="text-4xl font-black tracking-tight text-white mt-2 mb-1">
+        <h1 className="font-display text-4xl font-bold tracking-tight text-[#eef0f8] mt-2 mb-1">
           {config.name} {hasSimData ? 'Playoff Odds' : 'Championship Futures'}
         </h1>
         {updatedAt && <p className="text-gray-500 text-sm">Last updated {updatedAt}</p>}

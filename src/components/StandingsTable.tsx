@@ -24,16 +24,16 @@ interface Props {
 }
 
 function pctColor(pct: number | null): string {
-  if (pct == null) return 'text-gray-500'
-  if (pct >= 60) return 'text-green-400'
-  if (pct >= 40) return 'text-yellow-400'
-  return 'text-red-400'
+  if (pct == null) return 'text-[#484f6a]'
+  if (pct >= 60) return 'text-playoff-high'
+  if (pct >= 40) return 'text-playoff-mid'
+  return 'text-playoff-low'
 }
 
 function evColor(ev: number): string {
-  if (ev > 5) return 'text-green-400'
-  if (ev < -5) return 'text-red-400'
-  return 'text-gray-400'
+  if (ev > 3)  return 'text-edge-pos'
+  if (ev < -3) return 'text-edge-neg'
+  return 'text-[#8892aa]'
 }
 
 function fmt(n: number | null, decimals = 1): string {
@@ -109,29 +109,30 @@ export default function StandingsTable({ results, league, snapshots, config }: P
   ) => (
     <th
       title={title}
-      className={`px-4 py-3 ${align} text-xs font-semibold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap
-        ${sortKey === key ? 'text-blue-400' : 'text-gray-400 hover:text-gray-200'}`}
+      className={`px-3 py-3 ${align} text-[10px] font-bold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap
+        ${sortKey === key ? 'text-brand' : 'text-[#484f6a] hover:text-[#8892aa]'}`}
       onClick={() => setSortKey(key)}
     >
-      {label} {sortKey === key ? '↓' : ''}
+      {label}{sortKey === key ? ' ↓' : ''}
     </th>
   )
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-surface-border">
+    <div className="overflow-x-auto rounded-xl border border-surface-border shadow-card">
       <table className="w-full text-sm">
-        <thead className="bg-surface-card sticky top-0">
+        <thead className="bg-surface-card border-b border-surface-border">
           <tr>
-            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
+            {/* Sticky team column */}
+            <th className="sticky left-0 z-10 bg-surface-card px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[#484f6a]">
               Team
             </th>
             {hasSimData && (
               <>
                 {col('W', 'wins', 'text-right')}
-                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-400">L</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-400">GB</th>
+                <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-[#484f6a]">L</th>
+                <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-[#484f6a]">GB</th>
                 {hasSnapshots && (
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-400">
+                  <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-[#484f6a]">
                     Trend
                   </th>
                 )}
@@ -142,8 +143,8 @@ export default function StandingsTable({ results, league, snapshots, config }: P
             {hasMarketData && (
               <>
                 {col('Kalshi %', 'kalshi_champ_pct', 'text-right', 'Kalshi prediction market — field-normalized championship %')}
-                {col('Book %', 'sportsbook_champ_pct', 'text-right', 'Sportsbook consensus — multiplicatively de-vigged championship % (Odds API)')}
-                {col('EV%', 'champ_ev_pct', 'text-right', 'EV% = Kalshi % − Book %. Positive = sportsbook undervaluing vs prediction market.')}
+                {col('Book %', 'sportsbook_champ_pct', 'text-right', 'Sportsbook consensus — de-vigged championship % (Odds API)')}
+                {col('EV%', 'champ_ev_pct', 'text-right', 'EV% = Kalshi − Book. Positive = books may be undervaluing.')}
               </>
             )}
           </tr>
@@ -153,10 +154,10 @@ export default function StandingsTable({ results, league, snapshots, config }: P
             <>
               {/* Conference header row */}
               {conf && (
-                <tr key={`hdr-${conf}`} className="bg-surface-card/40">
+                <tr key={`hdr-${conf}`} className="bg-surface-raised/60">
                   <td
                     colSpan={99}
-                    className="px-4 py-2 text-xs font-bold uppercase tracking-widest text-gray-400"
+                    className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#484f6a]"
                   >
                     {conf}
                   </td>
@@ -173,12 +174,13 @@ export default function StandingsTable({ results, league, snapshots, config }: P
                 return (
                   <tr
                     key={r.team}
-                    className={`transition-colors hover:bg-surface-card/60 ${i % 2 === 0 ? 'bg-transparent' : 'bg-surface-card/20'}`}
+                    className={`transition-colors hover:bg-surface-raised ${i % 2 === 0 ? '' : 'bg-surface-card/30'}`}
                   >
-                    <td className="px-4 py-3">
+                    {/* Sticky team name */}
+                    <td className={`sticky left-0 z-10 px-4 py-3 ${i % 2 === 0 ? 'bg-surface' : 'bg-[#0e1019]'}`}>
                       <Link
                         href={`/${league}/${r.team.toLowerCase()}`}
-                        className="font-semibold text-white hover:text-blue-400 transition-colors"
+                        className="font-display font-bold text-[#eef0f8] hover:text-brand transition-colors"
                       >
                         {r.team}
                       </Link>
@@ -186,23 +188,23 @@ export default function StandingsTable({ results, league, snapshots, config }: P
 
                     {hasSimData && (
                       <>
-                        <td className="px-4 py-3 text-right text-gray-300 font-mono">{r.wins ?? '—'}</td>
-                        <td className="px-4 py-3 text-right text-gray-300 font-mono">{r.losses ?? '—'}</td>
-                        <td className="px-4 py-3 text-right text-gray-400 font-mono">
+                        <td className="px-3 py-3 text-right text-[#8892aa] font-mono text-sm">{r.wins ?? '—'}</td>
+                        <td className="px-3 py-3 text-right text-[#8892aa] font-mono text-sm">{r.losses ?? '—'}</td>
+                        <td className="px-3 py-3 text-right text-[#484f6a] font-mono text-sm">
                           {r.games_back != null
                             ? r.games_back === 0 ? '—' : r.games_back.toFixed(1)
                             : '—'}
                         </td>
 
                         {hasSnapshots && (
-                          <td className="px-4 py-3 text-right">
+                          <td className="px-3 py-3 text-right">
                             {sparkVals.length >= 2
                               ? <Sparkline values={sparkVals} />
-                              : <span className="text-gray-700 text-xs">—</span>
+                              : <span className="text-[#484f6a] text-xs">—</span>
                             }
                           </td>
                         )}
-                        <td className={`px-4 py-3 text-right font-bold text-base ${pctColor(r.playoff_pct)}`}>
+                        <td className={`px-3 py-3 text-right font-bold text-sm ${pctColor(r.playoff_pct)}`}>
                           <div className="flex items-center justify-end gap-1">
                             <span>{fmt(r.playoff_pct)}</span>
                             {hasSnapshots && (
@@ -213,8 +215,7 @@ export default function StandingsTable({ results, league, snapshots, config }: P
                             )}
                           </div>
                         </td>
-
-                        <td className={`px-4 py-3 text-right font-bold ${pctColor(r.championship_pct)}`}>
+                        <td className={`px-3 py-3 text-right font-mono text-sm ${pctColor(r.championship_pct)}`}>
                           {fmt(r.championship_pct)}
                         </td>
                       </>
@@ -222,7 +223,7 @@ export default function StandingsTable({ results, league, snapshots, config }: P
 
                     {hasMarketData && (
                       <>
-                        <td className="px-4 py-3 text-right text-gray-300 font-mono">
+                        <td className="px-3 py-3 text-right text-[#8892aa] font-mono text-sm">
                           <div className="flex items-center justify-end gap-1.5">
                             {!hasSimData && hasSnapshots && sparkVals.length >= 2 && (
                               <Sparkline values={sparkVals} />
@@ -236,20 +237,20 @@ export default function StandingsTable({ results, league, snapshots, config }: P
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-right text-gray-300 font-mono">
+                        <td className="px-3 py-3 text-right text-[#8892aa] font-mono text-sm">
                           {fmt(r.sportsbook_champ_pct)}
                         </td>
-                        <td
-                          className={`px-4 py-3 text-right font-bold ${
-                            r.champ_ev_pct != null ? evColor(r.champ_ev_pct) : 'text-gray-600'
-                          }`}
-                        >
-                          <span>{fmtEv(r.champ_ev_pct)}</span>
-                          {r.champ_ev_pct != null && r.champ_ev_pct > 5 && (
-                            <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-widest bg-green-400/20 text-green-300 border border-green-400/40">
-                              VALUE
-                            </span>
-                          )}
+                        <td className={`px-3 py-3 text-right font-bold text-sm ${
+                          r.champ_ev_pct != null ? evColor(r.champ_ev_pct) : 'text-[#484f6a]'
+                        }`}>
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="font-mono">{fmtEv(r.champ_ev_pct)}</span>
+                            {r.champ_ev_pct != null && r.champ_ev_pct > 3 && (
+                              <span className="inline-flex items-center rounded px-2 py-0.5 text-[10px] font-black uppercase tracking-widest bg-edge-pos/15 text-edge-pos border border-edge-pos/40">
+                                VALUE
+                              </span>
+                            )}
+                          </div>
                         </td>
                       </>
                     )}

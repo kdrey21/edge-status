@@ -22,30 +22,28 @@ function StatCard({
   label,
   value,
   color,
-  tooltip,
   sub,
 }: {
   label: string
   value: string
   color: string
-  /** Always-visible description shown below the value in small muted text. */
-  tooltip?: string
   sub?: string
+  /** tooltip kept for compat but not rendered — see Phase 5 mobile UX backlog */
+  tooltip?: string
 }) {
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-card p-5">
-      <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">{label}</p>
-      <p className={`text-3xl font-black ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-500 mt-1">{sub}</p>}
-      {tooltip && <p className="text-[10px] text-gray-600 mt-1 leading-snug">{tooltip}</p>}
+    <div className="rounded-xl border border-surface-border bg-surface-card shadow-card p-5">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a] mb-2">{label}</p>
+      <p className={`font-display text-3xl font-bold ${color}`}>{value}</p>
+      {sub && <p className="text-[11px] text-[#484f6a] mt-1.5">{sub}</p>}
     </div>
   )
 }
 
 function pctColor(pct: number): string {
-  if (pct >= 60) return 'text-green-400'
-  if (pct >= 40) return 'text-yellow-400'
-  return 'text-red-400'
+  if (pct >= 60) return 'text-playoff-high'
+  if (pct >= 40) return 'text-playoff-mid'
+  return 'text-playoff-low'
 }
 
 /** Ordinal suffix: 1→"1st", 2→"2nd", etc. */
@@ -266,8 +264,8 @@ export default function TeamPageClient({ league, team }: Props) {
         >
           ← {config.name}
         </Link>
-        <h1 className="text-4xl font-black tracking-tight text-white mt-2">{teamAbbr}</h1>
-        <p className="text-gray-500 text-sm">{config.name} · Sim-based probabilities</p>
+        <h1 className="font-display text-4xl font-bold tracking-tight text-[#eef0f8] mt-2">{teamAbbr}</h1>
+        <p className="text-[#484f6a] text-sm">{config.name} · Sim-based probabilities</p>
       </div>
 
       {simLoading ? (
@@ -290,9 +288,9 @@ export default function TeamPageClient({ league, team }: Props) {
           {allResults.length > 0 && result.playoff_pct != null && (() => {
             const summary = generatePositionSummary(teamAbbr, result, allResults, config)
             return summary ? (
-              <div className="rounded-xl border border-surface-border bg-surface-card p-5 mb-6">
-                <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Position Summary</p>
-                <p className="text-sm text-gray-300 leading-relaxed">{summary}</p>
+              <div className="rounded-xl border border-surface-border bg-surface-card shadow-card p-5 mb-6">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a] mb-2">Position Summary</p>
+                <p className="text-sm text-[#8892aa] leading-relaxed">{summary}</p>
               </div>
             ) : null
           })()}
@@ -351,14 +349,13 @@ export default function TeamPageClient({ league, team }: Props) {
                   label="Market Edge (EV%)"
                   value={(result.champ_ev_pct > 0 ? '+' : '') + result.champ_ev_pct.toFixed(1) + '%'}
                   color={
-                    result.champ_ev_pct > 5
-                      ? 'text-green-400'
-                      : result.champ_ev_pct < -5
-                      ? 'text-red-400'
-                      : 'text-gray-300'
+                    result.champ_ev_pct > 3
+                      ? 'text-edge-pos'
+                      : result.champ_ev_pct < -3
+                      ? 'text-edge-neg'
+                      : 'text-[#8892aa]'
                   }
-                  tooltip="Kalshi % minus Sportsbook %. Positive = sportsbooks undervaluing this team relative to the prediction market."
-                  sub={result.champ_ev_pct > 5 ? '🎯 VALUE' : result.champ_ev_pct < -5 ? 'Overpriced' : 'Fairly priced'}
+                  sub={result.champ_ev_pct > 3 ? '🎯 VALUE' : result.champ_ev_pct < -3 ? 'Overpriced' : 'Fairly priced'}
                 />
               )}
             </div>

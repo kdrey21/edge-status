@@ -1,82 +1,109 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { Inter, Space_Grotesk } from 'next/font/google'
 import './globals.css'
 
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap',
+})
+
+const spaceGrotesk = Space_Grotesk({
+  subsets: ['latin'],
+  variable: '--font-display',
+  weight: ['500', '600', '700'],
+  display: 'swap',
+})
+
 export const metadata: Metadata = {
-  title: 'EdgeStatus — Playoff Probability',
-  description: 'Real-time sports playoff probability powered by Monte Carlo simulation.',
+  title: 'EdgeStatus — Where Markets Disagree',
+  description: '50,000 Monte Carlo simulations daily. Surfaces where sportsbooks and prediction markets disagree on championship odds.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen bg-[#0f1117] text-gray-100">
-        <header className="border-b border-surface-border sticky top-0 z-50 backdrop-blur-sm bg-[#0f1117]/90">
+    <html lang="en" className={`dark ${inter.variable} ${spaceGrotesk.variable}`}>
+      <body className="min-h-screen bg-surface text-[#eef0f8] font-sans">
+
+        {/* Header */}
+        <header className="border-b border-surface-border sticky top-0 z-50 bg-surface/90 backdrop-blur-md">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-2">
-              <span className="text-xl font-black tracking-tight text-white">
-                Edge<span className="text-blue-400">Status</span>
+            <Link href="/" className="flex items-center gap-1.5">
+              <span className="font-display text-lg font-bold tracking-tight text-[#eef0f8]">
+                Edge<span className="text-brand">Status</span>
               </span>
             </Link>
-            <span className="text-xs text-gray-500">50,000 sims · daily update</span>
+            <div className="flex items-center gap-3">
+              <span className="hidden sm:block text-[10px] uppercase tracking-widest text-[#484f6a] font-medium">
+                50k sims · daily
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-edge-pos/30 bg-edge-pos/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-edge-pos">
+                <span className="h-1.5 w-1.5 rounded-full bg-edge-pos animate-pulse" />
+                Live
+              </span>
+            </div>
           </div>
         </header>
+
+        {/* Page content */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {children}
         </main>
+
+        {/* Footer */}
         <footer className="border-t border-surface-border mt-16">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 mb-8">
-              {/* What this is */}
+
               <div>
-                <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a] mb-3">
                   What is EdgeStatus?
                 </p>
-                <p className="text-xs text-gray-600 leading-relaxed">
+                <p className="text-xs text-[#484f6a] leading-relaxed">
                   A daily sports analytics tool that runs Monte Carlo simulations and
-                  compares the results to real-money prediction markets and sportsbook
-                  odds — finding where the numbers disagree.
+                  compares the results to Kalshi prediction markets and sportsbook
+                  odds — surfacing teams the market may be mispricing.
                 </p>
               </div>
 
-              {/* How it works */}
               <div>
-                <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a] mb-3">
                   How it works
                 </p>
-                <ul className="text-xs text-gray-600 space-y-1.5 leading-relaxed">
-                  <li>→ 50,000 simulated seasons run each morning via Elo ratings</li>
+                <ul className="text-xs text-[#484f6a] space-y-1.5 leading-relaxed">
+                  <li>→ 50,000 season simulations run each morning via Elo ratings</li>
                   <li>→ Playoff &amp; championship odds come from those sims</li>
-                  <li>→ Kalshi (regulated prediction market) provides a real-money reference price</li>
-                  <li>→ EV% = Kalshi % − de-vigged sportsbook % · positive = potential underpricing</li>
+                  <li>→ Kalshi (regulated prediction market) is the reference price</li>
+                  <li>→ EV% = Kalshi % − de-vigged sportsbook % · positive = potential value</li>
                 </ul>
               </div>
 
-              {/* Disclaimer */}
               <div>
-                <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a] mb-3">
                   Disclaimer
                 </p>
-                <p className="text-xs text-gray-600 leading-relaxed">
+                <p className="text-xs text-[#484f6a] leading-relaxed">
                   EdgeStatus is a simulation model for informational purposes only.
-                  It is <span className="text-gray-400 font-semibold">not financial advice</span> and
-                  does not constitute a recommendation to place any bet or trade.
+                  It is{' '}
+                  <span className="text-[#8892aa] font-semibold">not financial advice</span>{' '}
+                  and does not constitute a recommendation to place any bet or trade.
                   Prediction markets and sports betting involve real financial risk.
-                  Always do your own research.
                 </p>
               </div>
             </div>
 
-            <div className="border-t border-surface-border/40 pt-5 flex flex-col sm:flex-row items-center justify-between gap-2">
-              <span className="text-xs font-black tracking-tight text-gray-600">
-                Edge<span className="text-blue-400/60">Status</span>
+            <div className="border-t border-surface-subtle pt-5 flex flex-col sm:flex-row items-center justify-between gap-2">
+              <span className="font-display text-sm font-bold text-[#484f6a]">
+                Edge<span className="text-brand/50">Status</span>
               </span>
-              <p className="text-[10px] text-gray-700">
-                Data: ESPN · Kalshi API · The Odds API · Updates daily at 06:00 UTC
+              <p className="text-[10px] text-[#484f6a]">
+                Data: ESPN · Kalshi API · The Odds API · Updates daily 06:00 UTC
               </p>
             </div>
           </div>
         </footer>
+
       </body>
     </html>
   )
