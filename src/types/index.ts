@@ -2,14 +2,14 @@ export interface SimResult {
   id: string
   team: string
   league: string
-  wins: number
-  losses: number
-  games_back: number
-  playoff_pct: number
-  div_title_pct: number
-  conf_title_pct: number
-  championship_pct: number
-  seed_distribution: Record<string, number>
+  wins: number | null
+  losses: number | null
+  games_back: number | null
+  playoff_pct: number | null
+  div_title_pct: number | null
+  conf_title_pct: number | null
+  championship_pct: number | null
+  seed_distribution: Record<string, number> | null
   magic_number: number | null
   elim_number: number | null
   // Market edge columns (Phase 3) — null when API keys not set or market unavailable

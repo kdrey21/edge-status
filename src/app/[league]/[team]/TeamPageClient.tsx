@@ -78,7 +78,7 @@ function generatePositionSummary(
 
   // Sort helper: best record first (wins desc, losses asc)
   const byRecord = (a: SimResult, b: SimResult) =>
-    b.wins !== a.wins ? b.wins - a.wins : a.losses - b.losses
+    (b.wins ?? 0) !== (a.wins ?? 0) ? (b.wins ?? 0) - (a.wins ?? 0) : (a.losses ?? 0) - (b.losses ?? 0)
 
   // Division standings
   const divTeams = division
@@ -110,18 +110,18 @@ function generatePositionSummary(
   const wcRank = wcTeams.findIndex(t => t.team === teamAbbr) + 1
 
   // Record sentence
-  const record = `${team.wins}-${team.losses}`
-  const gp = team.wins + team.losses
+  const record = `${team.wins ?? 0}-${team.losses ?? 0}`
+  const gp = (team.wins ?? 0) + (team.losses ?? 0)
 
   // Position sentence
   let positionSentence = ''
-  if (divRank === 1 && team.games_back === 0) {
+  if (divRank === 1 && (team.games_back ?? 0) === 0) {
     const lead = divTeams[1]
       ? `, ${(divTeams[1].games_back ?? 0).toFixed(1)} GB ahead of the pack`
       : ''
     positionSentence = `They lead the ${division ?? 'division'}${lead}.`
   } else if (divRank > 0) {
-    const gb = team.games_back > 0 ? ` (${team.games_back.toFixed(1)} GB)` : ''
+    const gb = (team.games_back ?? 0) > 0 ? ` (${(team.games_back ?? 0).toFixed(1)} GB)` : ''
     positionSentence = `They sit ${ordinal(divRank)} in the ${division ?? 'division'}${gb}.`
   }
 
@@ -489,11 +489,13 @@ export default function TeamPageClient({ league, team }: Props) {
             </div>
           )}
 
-          {/* Seed distribution */}
-          <div className="rounded-xl border border-surface-border bg-surface-card p-6 mb-6">
-            <h2 className="text-lg font-bold text-white mb-4">Seed Distribution</h2>
-            <SeedChart seedDistribution={result.seed_distribution} />
-          </div>
+          {/* Seed distribution — only rendered when sim data exists (null for off-season futures) */}
+          {result.seed_distribution && Object.keys(result.seed_distribution).length > 0 && (
+            <div className="rounded-xl border border-surface-border bg-surface-card p-6 mb-6">
+              <h2 className="text-lg font-bold text-white mb-4">Seed Distribution</h2>
+              <SeedChart seedDistribution={result.seed_distribution} />
+            </div>
+          )}
 
           {/* Trend chart — odds over time */}
           <div className="rounded-xl border border-surface-border bg-surface-card p-6 mb-6">
