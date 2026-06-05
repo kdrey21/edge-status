@@ -318,10 +318,24 @@ export default function TeamPageClient({ league, team }: Props) {
           {allResults.length > 0 && config.divisionMap && (() => {
             const division = config.divisionMap[teamAbbr]
             if (!division) return null
-            const divTeams = allResults
-              .filter(r => config.divisionMap![r.team] === division)
-              .sort((a, b) => (a.games_back ?? 0) - (b.games_back ?? 0))
-            if (divTeams.length === 0) return null
+
+            // Compute GB in the browser from wins/losses — avoids depending on
+            // the sim writing a correct games_back value to Supabase.
+            // GB = ((leaderWins - teamWins) + (teamLosses - leaderLosses)) / 2
+            const raw = allResults.filter(r => config.divisionMap![r.team] === division)
+            if (raw.length === 0) return null
+            const leader = raw.reduce((best, r) =>
+              (r.wins ?? 0) / Math.max(1, (r.wins ?? 0) + (r.losses ?? 0)) >
+              (best.wins ?? 0) / Math.max(1, (best.wins ?? 0) + (best.losses ?? 0))
+                ? r : best
+            )
+            const divTeams = raw
+              .map(r => ({
+                ...r,
+                computedGB: ((leader.wins ?? 0) - (r.wins ?? 0) + (r.losses ?? 0) - (leader.losses ?? 0)) / 2,
+              }))
+              .sort((a, b) => a.computedGB - b.computedGB)
+
             return (
               <div className="rounded-xl border border-surface-border bg-surface-card shadow-card p-5 mb-6">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a] mb-3">
@@ -369,7 +383,7 @@ export default function TeamPageClient({ league, team }: Props) {
                             <td className="py-2 text-right text-[#8892aa] font-mono text-xs">{r.wins ?? '—'}</td>
                             <td className="py-2 text-right text-[#8892aa] font-mono text-xs">{r.losses ?? '—'}</td>
                             <td className="py-2 text-right text-[#484f6a] font-mono text-xs">
-                              {r.games_back != null ? (r.games_back === 0 ? '—' : r.games_back.toFixed(1)) : '—'}
+                              {r.computedGB === 0 ? '—' : r.computedGB.toFixed(1)}
                             </td>
                             <td className={`py-2 text-right font-bold font-mono text-xs ${r.playoff_pct != null ? pctColor(r.playoff_pct) : 'text-[#484f6a]'}`}>
                               {r.playoff_pct != null ? r.playoff_pct.toFixed(1) + '%' : '—'}

@@ -99,6 +99,30 @@ export default function StandingsTable({ results, league, snapshots, config }: P
     })
   }
 
+  // Compute GB per division from wins/losses — avoids depending on DB games_back column
+  const computedGB = new Map<string, number>()
+  if (config?.divisionMap) {
+    const divGroups = new Map<string, SimResult[]>()
+    for (const r of results) {
+      const div = config.divisionMap[r.team]
+      if (!div) continue
+      if (!divGroups.has(div)) divGroups.set(div, [])
+      divGroups.get(div)!.push(r)
+    }
+    for (const divTeams of divGroups.values()) {
+      const leader = divTeams.reduce((best, r) =>
+        (r.wins ?? 0) / Math.max(1, (r.wins ?? 0) + (r.losses ?? 0)) >
+        (best.wins ?? 0) / Math.max(1, (best.wins ?? 0) + (best.losses ?? 0))
+          ? r : best
+      )
+      for (const r of divTeams) {
+        computedGB.set(r.team,
+          ((leader.wins ?? 0) - (r.wins ?? 0) + (r.losses ?? 0) - (leader.losses ?? 0)) / 2
+        )
+      }
+    }
+  }
+
   // Group by conference when config provides a conferenceMap
   const conferenceGroups: Array<{ conf: string; rows: SimResult[] }> = (() => {
     const cmap = config?.conferenceMap
@@ -213,9 +237,10 @@ export default function StandingsTable({ results, league, snapshots, config }: P
                         <td className="px-3 py-3 text-right text-[#8892aa] font-mono text-sm">{r.wins ?? '—'}</td>
                         <td className="px-3 py-3 text-right text-[#8892aa] font-mono text-sm">{r.losses ?? '—'}</td>
                         <td className="px-3 py-3 text-right text-[#484f6a] font-mono text-sm">
-                          {r.games_back != null
-                            ? r.games_back === 0 ? '—' : r.games_back.toFixed(1)
-                            : '—'}
+                          {(() => {
+                            const gb = computedGB.get(r.team)
+                            return gb == null || gb === 0 ? '—' : gb.toFixed(1)
+                          })()}
                         </td>
 
                         {hasSnapshots && (
