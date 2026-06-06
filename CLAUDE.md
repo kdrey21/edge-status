@@ -299,12 +299,26 @@ social card and/or a premium feature to drive traction.
 
 **Selection algorithm (one pick per league):**
 1. Candidate pool = teams with championship futures in that league.
-2. **Realism filter:** keep only teams in the **top half** of the league by championship
-   futures (implied probability rank) OR current power/standings rank — so picks actually
-   have a shot (avoids longshot-value traps from favorite–longshot bias).
-3. Add a **minimum championship-probability floor** (e.g. ≥ 8%) as a second guard.
+2. **Realism filter (PRIMARY — rank-based, not absolute):** keep only teams in the
+   **top half** of the league by championship futures (implied-probability rank) OR current
+   power/standings rank. Use rank, NOT an absolute probability, because championship-
+   probability scale varies wildly by league parity (see research below): the NFL's most
+   likely champion is ~14%, while NBA champions are routinely 50–65% favorites. Tighten to
+   **top third for the NBA** (chalk league — champions are rarely longshots).
+3. **Secondary floor (LOW): ≥ 5% implied championship probability.** Drops true no-hopers
+   only. NOTE: an earlier 8% floor was rejected — it would have excluded ~30% of the last 40
+   champions, including the best value stories. 5% excludes only ~12.5%; 8% excludes ~30%.
 4. Among the qualified pool, pick the **best edge** (highest `champ_ev_pct`, i.e. model/
    prediction-market vs de-vigged sportsbook). Tie-break by higher win probability.
+
+**Supporting research — preseason odds of last 10 champions per league (SportsOddsHistory):**
+- % of champions whose PRESEASON implied probability was below each candidate floor (of 40):
+  **< 8% → 30% of champions** (too aggressive) · **< 5% → 12.5%** · **< 3% → 7.5%**.
+- Median champion preseason implied prob: NBA ~17.5%, NFL ~9.1%, NHL ~8.3%, MLB ~9.1%.
+- Parity contrast (max champ prob in 10 yrs): NFL 14.3% vs NBA 65.2% → confirms a single
+  absolute floor is wrong; rank-based filter adapts per league.
+- Accept that ~1 in 10 champions is an uncatchable longshot (e.g. TEX +5000, SEA +6000) —
+  fine for a curated parlay optimizing realistic value, not miracles.
 5. Combine the 4 legs: multiply de-vigged probabilities → combined implied probability;
    multiply decimal odds → combined payout; show parlay EV.
 
