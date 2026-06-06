@@ -196,6 +196,7 @@ Go to: `github.com/kdrey21/edge-status` → Settings → Secrets and variables �
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `deploy-pages.yml` | Anon/public key (Supabase → API settings) |
 | `ODDS_API_KEY` | `simulate.yml` | The Odds API key (https://the-odds-api.com) — optional |
 | `KALSHI_API_TOKEN` | `simulate.yml` | Kalshi read-only Bearer token (kalshi.com → Settings → API) — optional |
+| `NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY` | `deploy-pages.yml` | Web3Forms access key (web3forms.com) for the "Report an issue" button — emails reports to the registered inbox. Public-safe (UUID, not an email). Button stays hidden until set. |
 
 **All secrets use individual values** — do NOT combine into a single multi-line secret.
 Each secret field contains only the value (no `KEY=` prefix).
