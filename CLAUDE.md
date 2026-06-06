@@ -16,6 +16,22 @@ for NBA, NHL, MLB, NFL, and MLS — all powered by Monte Carlo simulation.
 
 ---
 
+## Name Candidates (branding — undecided)
+
+Current working name is **EdgeStatus**. Alternatives under consideration:
+
+| Candidate | Notes | Domain availability (checked via WHOIS) |
+|---|---|---|
+| **Overlay** | Common English/tech word — hard + expensive to get a clean domain. | ❌ Taken: overlay.com, .io, .gg, getoverlay.com, overlayodds.com, playoverlay.com. overlay.app / overlay.bet inconclusive (registry hides WHOIS). Would need a modifier; good ones appear gone. |
+| **BangSheetV3** | Distinctive — full brand footprint is wide open and cheap to secure. | ✅ Available: **bangsheetv3.com**, **bangsheet.com** (could drop "V3"), bangsheet.io, bangsheetv3.io, bangsheet.gg, getbangsheet.com. |
+
+Recommendation if branding moves forward: **BangSheet/BangSheetV3** is the more ownable
+option — register the cluster (.com + .io) early. "Overlay" would require buying an
+aftermarket domain. (Availability is a point-in-time WHOIS snapshot — re-verify at a
+registrar before purchasing.)
+
+---
+
 ## Tech Stack
 
 - **Framework:** Next.js 14.2.5 (App Router, TypeScript, static export)
