@@ -185,8 +185,6 @@ async function main() {
               kalshi_champ_pct,
               sportsbook_champ_pct,
               champ_ev_pct,
-              implied_playoff_pct: null,
-              edge_pct: null,
               updated_at: new Date().toISOString(),
             })
           }
@@ -325,9 +323,6 @@ async function main() {
             kalshi_champ_pct,
             sportsbook_champ_pct,
             champ_ev_pct,
-            // Legacy columns — kept for schema compat, no longer meaningful
-            implied_playoff_pct: null,
-            edge_pct: null,
             updated_at: new Date().toISOString(),
           }
         })
