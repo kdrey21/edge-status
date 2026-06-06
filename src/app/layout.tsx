@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Inter, Space_Grotesk } from 'next/font/google'
 import './globals.css'
+import ReportIssue from '@/components/ReportIssue'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -103,6 +104,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
         </footer>
+
+        {/* Floating feedback button (every page) */}
+        <ReportIssue />
 
       </body>
     </html>
