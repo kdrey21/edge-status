@@ -606,42 +606,105 @@ export function isLeagueActive(teams: LeagueTeam[]): boolean {
   return teams.some(t => t.wins + t.losses + t.ties > 0)
 }
 
+/** Reconstructed state of the current postseason. */
+export interface PlayoffState {
+  /** ESPN team IDs that reached the real playoff bracket (season type 3). */
+  participants: Set<string>
+  /**
+   * Completed-series (or completed single-elimination game) results, keyed by
+   * the loser's team ID → winner's team ID. A participant is "alive" iff it is
+   * NOT present as a key here. The winner/loser pairing also lets callers tell
+   * a within-conference elimination from a cross-conference one (the final).
+   */
+  eliminations: Map<string, string>
+}
+
 /**
- * Returns the ESPN team IDs of teams currently alive in the playoffs —
- * i.e. appearing in any non-completed postseason (season type 3) event.
+ * Reconstruct the current postseason state from ESPN's scoreboard.
  *
- * Returns an empty Set when:
- *   - The league isn't in playoff season yet (MLB regular season, etc.)
- *   - The playoffs are completely finished
- *   - ESPN returns no data
+ * - `participants` — every team appearing in a season-type-3 (real playoff) event.
+ *   NBA play-in games are season-type **5** and are therefore excluded, so play-in
+ *   losers are never miscounted as having made the playoffs.
+ * - `eliminations` — for each COMPLETED best-of-N series, the loser (fewer series
+ *   wins). For single-elimination sports (NFL) with no series object, each completed
+ *   playoff game's loser (by score).
  *
- * Used to zero out championship/conf odds for eliminated teams after the
- * regular season ends and we switch to pure playoff-bracket simulation.
+ * Returns empty sets when the league has no active postseason (regular season or
+ * off-season) — callers should then leave the Monte Carlo probabilities untouched.
+ *
+ * Implementation note: ESPN ignores `seasontype=3` when a `dates` range is supplied
+ * and caps each response at 500 events, so we fetch the postseason window in short
+ * date chunks and filter to season type 3 in code. The window reaches ~80 days back —
+ * far enough to include round 1 of any in-progress postseason.
  */
-export async function fetchPlayoffAliveTeamIds(espnPath: string): Promise<Set<string>> {
-  try {
-    const url = `${ESPN_SITE}/${espnPath}/scoreboard?seasontype=3&limit=200`
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = (await espnFetch(url)) as any
-    const aliveIds = new Set<string>()
+export async function fetchPlayoffState(espnPath: string): Promise<PlayoffState> {
+  const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '')
+  const today = new Date()
+  const windowStart = new Date(today); windowStart.setDate(windowStart.getDate() - 80)
+  const windowEnd = new Date(today); windowEnd.setDate(windowEnd.getDate() + 28)
 
+  // 20-day chunks stay well under ESPN's 500-event cap even when the earliest
+  // chunk overlaps the tail of the regular season.
+  const chunks: Array<[string, string]> = []
+  let start = new Date(windowStart)
+  while (start < windowEnd) {
+    const end = new Date(start); end.setDate(end.getDate() + 19)
+    const effEnd = end < windowEnd ? end : windowEnd
+    chunks.push([fmt(start), fmt(effEnd)])
+    start = new Date(effEnd); start.setDate(start.getDate() + 1)
+  }
+
+  const participants = new Set<string>()
+  const eliminations = new Map<string, string>()
+
+  const datasets = await Promise.all(
+    chunks.map(([s, e]) =>
+      espnFetch(`${ESPN_SITE}/${espnPath}/scoreboard?dates=${s}-${e}&limit=400`)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .then(d => d as any)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .catch(() => ({ events: [] }) as any),
+    ),
+  )
+
+  for (const data of datasets) {
     for (const event of data.events ?? []) {
-      // Only process actual postseason events — some leagues return regular
-      // season games even when seasontype=3 is passed (e.g. MLB in June).
       if (event.season?.type !== 3) continue
-      const completed = event.status?.type?.completed ?? false
-      if (completed) continue
-
+      const comp = event.competitions?.[0]
+      if (!comp) continue
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const comps: any[] = event.competitions?.[0]?.competitors ?? []
-      for (const comp of comps) {
-        const id = comp.team?.id
-        if (id) aliveIds.add(String(id))
+      const competitors: any[] = comp.competitors ?? []
+
+      for (const c of competitors) {
+        const id = c.team?.id
+        if (id) participants.add(String(id))
+      }
+
+      const series = comp.series
+      if (series?.competitors?.length === 2) {
+        // Best-of-N series — eliminate the loser only once the series is decided
+        if (series.completed === true) {
+          const [x, y] = series.competitors
+          const xw = x.wins ?? 0, yw = y.wins ?? 0
+          if (xw !== yw && x.id && y.id) {
+            const loserId  = String(xw < yw ? x.id : y.id)
+            const winnerId = String(xw < yw ? y.id : x.id)
+            eliminations.set(loserId, winnerId)
+          }
+        }
+      } else if (event.status?.type?.completed) {
+        // Single-elimination playoff game (e.g. NFL) — loser is out immediately
+        const home = competitors.find(c => c.homeAway === 'home')
+        const away = competitors.find(c => c.homeAway === 'away')
+        const hs = Number(home?.score), as = Number(away?.score)
+        if (home?.team?.id && away?.team?.id && !Number.isNaN(hs) && !Number.isNaN(as) && hs !== as) {
+          const loserId  = String(hs < as ? home.team.id : away.team.id)
+          const winnerId = String(hs < as ? away.team.id : home.team.id)
+          eliminations.set(loserId, winnerId)
+        }
       }
     }
-
-    return aliveIds
-  } catch {
-    return new Set()
   }
+
+  return { participants, eliminations }
 }

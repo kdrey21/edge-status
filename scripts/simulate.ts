@@ -15,7 +15,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { LEAGUES } from '@/types'
-import { fetchStandings, fetchUpcomingGames, fetchCompletedGames, isLeagueActive, fetchPlayoffAliveTeamIds } from '@/lib/espn'
+import { fetchStandings, fetchUpcomingGames, fetchCompletedGames, isLeagueActive, fetchPlayoffState } from '@/lib/espn'
 import { runSimulation, buildH2HMatrix, type TrackedGameInput } from '@/lib/simulation'
 import { fetchSportsbookChampionshipOdds } from '@/lib/odds'
 import { fetchKalshiChampionshipOdds } from '@/lib/kalshi'
@@ -185,8 +185,6 @@ async function main() {
               kalshi_champ_pct,
               sportsbook_champ_pct,
               champ_ev_pct,
-              implied_playoff_pct: null,
-              edge_pct: null,
               updated_at: new Date().toISOString(),
             })
           }
@@ -325,67 +323,91 @@ async function main() {
             kalshi_champ_pct,
             sportsbook_champ_pct,
             champ_ev_pct,
-            // Legacy columns — kept for schema compat, no longer meaningful
-            implied_playoff_pct: null,
-            edge_pct: null,
             updated_at: new Date().toISOString(),
           }
         })
 
         // -------------------------------------------------------------------
-        // Playoff state adjustment
-        // When the regular season is over (0 games remaining), the Monte Carlo
-        // sim runs the full playoff bracket from scratch — it doesn't know which
-        // teams have already been eliminated. Fix this by fetching the ESPN
-        // postseason scoreboard and zeroing out championship/conf odds for any
-        // team that no longer has a scheduled playoff game.
+        // Playoff state adjustment (sport-agnostic)
+        // Once the real playoff bracket exists (ESPN season type 3), outcomes
+        // that have already happened are FACTS, not probabilities:
+        //   • playoff_pct  → 100 for teams that made the bracket, 0 for the rest
+        //   • championship → 0 for any team eliminated from the playoffs
+        //   • conf_title   → 0 for any team eliminated within its conference bracket
+        // Alive teams are renormalized so each field still sums to 100%. Play-in
+        // games are ESPN season type 5 and are excluded, so play-in losers are
+        // never counted as having made the playoffs.
         // -------------------------------------------------------------------
-        const totalGamesRemaining = teams.reduce((s, t) => s + t.gamesRemaining, 0)
-        if (totalGamesRemaining === 0) {
-          const aliveIds = await fetchPlayoffAliveTeamIds(league.espnPath)
-          if (aliveIds.size > 0) {
-            const idToAbbr = new Map(teams.map(t => [t.id, t.abbreviation]))
-            const aliveAbbrs = new Set(
-              [...aliveIds].map(id => idToAbbr.get(id)).filter((a): a is string => a != null),
-            )
+        const playoff = await fetchPlayoffState(league.espnPath)
+        if (playoff.participants.size > 0) {
+          const idToAbbr = new Map(teams.map(t => [t.id, t.abbreviation]))
+          const abbrToConf = new Map(teams.map(t => [t.abbreviation, t.conference]))
+          const toAbbr = (id: string) => idToAbbr.get(id)
 
-            console.log(
-              `  [${league.slug.toUpperCase()}] Playoff mode — ${aliveAbbrs.size} alive: ${[...aliveAbbrs].sort().join(', ')}`,
-            )
+          const participantAbbrs = new Set(
+            [...playoff.participants].map(toAbbr).filter((a): a is string => a != null),
+          )
 
-            // Zero out eliminated teams
-            for (const row of rows) {
-              if (!aliveAbbrs.has(row.team)) {
-                row.championship_pct = 0
-                row.conf_title_pct = 0
-              }
+          // champEliminated: lost any completed series/game → out of the title race
+          // confEliminated:  lost to a SAME-conference opponent → didn't win its conf
+          //   (the final is cross-conference, so a finals loser still won its conf)
+          const champEliminated = new Set<string>()
+          const confEliminated = new Set<string>()
+          for (const [loserId, winnerId] of playoff.eliminations) {
+            const loser = toAbbr(loserId)
+            if (!loser) continue
+            champEliminated.add(loser)
+            const winner = toAbbr(winnerId)
+            if (winner && abbrToConf.get(loser) === abbrToConf.get(winner)) {
+              confEliminated.add(loser)
             }
+          }
 
-            // Renormalize championship_pct so alive teams sum to 100%
+          const aliveSet = new Set(
+            [...participantAbbrs].filter(a => !champEliminated.has(a)),
+          )
+          console.log(
+            `  [${league.slug.toUpperCase()}] Playoff mode — ${participantAbbrs.size} in bracket, ${aliveSet.size} alive: ${[...aliveSet].sort().join(', ')}`,
+          )
+
+          for (const row of rows) {
+            const made = participantAbbrs.has(row.team)
+            // 1. Playoff berth is settled
+            row.playoff_pct = made ? 100 : 0
+            row.magic_number = null
+            row.elim_number = made ? null : 0
+            // 2. Championship — zero out anyone eliminated from the playoffs
+            if (!made || champEliminated.has(row.team)) row.championship_pct = 0
+            // 3. Conference title — zero out anyone eliminated within its conference
+            if (!made || confEliminated.has(row.team)) row.conf_title_pct = 0
+          }
+
+          // Renormalize championship_pct among alive teams → sum to 100
+          if (aliveSet.size > 0) {
             const totalChamp = rows
-              .filter(r => aliveAbbrs.has(r.team))
+              .filter(r => aliveSet.has(r.team))
               .reduce((s, r) => s + r.championship_pct, 0)
-            if (totalChamp > 0) {
-              for (const row of rows) {
-                if (aliveAbbrs.has(row.team)) {
-                  row.championship_pct = (row.championship_pct / totalChamp) * 100
-                }
-              }
+            for (const row of rows) {
+              if (!aliveSet.has(row.team)) continue
+              row.championship_pct = totalChamp > 0
+                ? (row.championship_pct / totalChamp) * 100
+                : 100 / aliveSet.size // sim gave ~0 to all alive underdogs → split evenly
             }
+          }
 
-            // Renormalize conf_title_pct per conference among alive teams
-            const teamConf = new Map(teams.map(t => [t.abbreviation, t.conference]))
-            const conferences = new Set(teams.map(t => t.conference))
-            for (const conf of conferences) {
-              const aliveInConf = rows.filter(
-                r => aliveAbbrs.has(r.team) && teamConf.get(r.team) === conf,
-              )
-              const totalConf = aliveInConf.reduce((s, r) => s + r.conf_title_pct, 0)
-              if (totalConf > 0) {
-                for (const row of aliveInConf) {
-                  row.conf_title_pct = (row.conf_title_pct / totalConf) * 100
-                }
-              }
+          // Renormalize conf_title_pct per conference among conf-alive participants → 100
+          for (const conf of new Set(teams.map(t => t.conference))) {
+            const confAlive = rows.filter(
+              r => participantAbbrs.has(r.team) &&
+                   !confEliminated.has(r.team) &&
+                   abbrToConf.get(r.team) === conf,
+            )
+            if (confAlive.length === 0) continue
+            const totalConf = confAlive.reduce((s, r) => s + r.conf_title_pct, 0)
+            for (const row of confAlive) {
+              row.conf_title_pct = totalConf > 0
+                ? (row.conf_title_pct / totalConf) * 100
+                : 100 / confAlive.length
             }
           }
         }

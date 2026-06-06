@@ -16,9 +16,6 @@ export interface SimResult {
   kalshi_champ_pct: number | null       // unused (Kalshi doesn't have per-team futures)
   sportsbook_champ_pct: number | null   // Odds API multiplicatively de-vigged championship %
   champ_ev_pct: number | null           // Edge: sim championship_pct − sportsbook_champ_pct
-  // Legacy placeholders — kept for schema backward compat, no longer written
-  implied_playoff_pct: number | null
-  edge_pct: number | null
   updated_at: string
 }
 
