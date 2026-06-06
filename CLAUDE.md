@@ -255,6 +255,86 @@ GitHub Pages must be enabled: repo Settings → Pages → Source: **GitHub Actio
 
 ---
 
+## Feature Backlog (planned, not yet built)
+
+### Backlog 1 — Model confidence indicator
+**Goal:** Surface a per-team "how settled / trustworthy is this projection" signal as an
+additional data layer (column in the standings table + badge on the team page).
+
+**Feasibility:** Yes — derivable entirely from data the Monte Carlo already produces; no
+new external source required. The single point-estimate probabilities throw away the
+distributional information we already compute.
+
+**Candidate signals (combine into one score):**
+1. **Outcome decisiveness** — entropy of `seed_distribution` (already stored). Low entropy
+   (locked into one seed) = high confidence; spread across many seeds = low confidence.
+   Alternative/companion: distance of `playoff_pct` from 50% (toss-ups are low confidence).
+2. **Season progress** — `1 − gamesRemaining/totalGames`. Early season = lower confidence
+   (Elo from a small sample, lots of unplayed games). Once the postseason override applies
+   (playoff_pct is 100/0), confidence is effectively maxed.
+3. **Projection stability** — standard deviation of `playoff_pct` across the last N rows in
+   `sim_snapshots` (history we already keep). Day-to-day churn = low confidence; flat = high.
+
+**Recommended output:** a 0–100 `model_confidence` score (or 3-tier High/Med/Low badge),
+computed in `scripts/simulate.ts`, blending the three signals (tune weights empirically).
+
+**Requirements / tasks:**
+- Schema: `alter table sim_results add column if not exists model_confidence numeric;`
+  (also add to `sim_snapshots` if we want to trend it).
+- Compute in simulation/sim script; expose via `SimResult` type + supabase select.
+- UI: new sortable column in `StandingsTable` and a badge on the team page. Tooltip must
+  explain it. Color scale distinct from the playoff-heat and edge colors (don't overload
+  green/red — pick a neutral/brand ramp).
+
+**Important caveat to document in the UI copy:** at N=50k the Monte Carlo *sampling* error
+is ~0.2%, so "confidence" here means **how settled the outcome is**, NOT statistical
+precision, and must NOT be read as confidence that the model beats the market.
+
+---
+
+### Backlog 2 — Quarterly cross-league championship parlay
+**Goal:** A curated 4-leg "title parlay" — one champion pick per major league
+(NBA, NHL, MLB, NFL) — that balances market edge with realism. Intended as a shareable
+social card and/or a premium feature to drive traction.
+
+**Selection algorithm (one pick per league):**
+1. Candidate pool = teams with championship futures in that league.
+2. **Realism filter:** keep only teams in the **top half** of the league by championship
+   futures (implied probability rank) OR current power/standings rank — so picks actually
+   have a shot (avoids longshot-value traps from favorite–longshot bias).
+3. Add a **minimum championship-probability floor** (e.g. ≥ 8%) as a second guard.
+4. Among the qualified pool, pick the **best edge** (highest `champ_ev_pct`, i.e. model/
+   prediction-market vs de-vigged sportsbook). Tie-break by higher win probability.
+5. Combine the 4 legs: multiply de-vigged probabilities → combined implied probability;
+   multiply decimal odds → combined payout; show parlay EV.
+
+**Design / product considerations (open to feedback):**
+- **Timing mismatch:** the four titles resolve at different times (NBA/NHL ~Jun, MLB ~Nov,
+  NFL ~Feb). A real cross-sport futures parlay is long-dated and most books won't combine
+  it on one slip — so present it primarily as a *published model portfolio* / shareable
+  card, not necessarily a one-click bet.
+- **"Quarterly":** regenerate each quarter (or on a cadence) as futures move; archive past
+  parlays to show a track record (ties into CLV/credibility).
+- **Premium vs social:** could gate the live pick behind a premium tier while posting a
+  teaser card to socials. Shareable card art should be designed alongside the Phase 5
+  refresh, not bolted on.
+
+**Data dependencies:**
+- Year-round championship futures (sportsbook + Kalshi) for ALL four leagues, including
+  off-season ones. The off-season market-only mode already does this for NFL via
+  `marketNameMap` — would need the same wiring for the other leagues when between seasons.
+- "Top half" ranking can be derived from the futures implied-probability rank itself
+  (rank teams by implied champ prob, keep those above the median) — no extra source needed.
+  For in-season leagues, current standings/power rank is an alternative input.
+
+**Requirements / tasks:**
+- New computation (sim script or a small dedicated job) producing the 4 picks + combined
+  odds/EV; store in a new `parlay` table (or a JSON blob keyed by quarter).
+- New page/section + a generated shareable image card.
+- Decide premium gating mechanism (out of scope until monetization is on the roadmap).
+
+---
+
 ## File Map
 
 ```
