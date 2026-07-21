@@ -48,8 +48,11 @@ function espnLogoUrl(league: string, abbr: string): string {
 
 function fmt(n: number | null, decimals = 1): string {
   if (n == null) return '—'
-  // Cap at >99% — "100.0%" looks wrong to users even when technically accurate
-  if (n >= 99.95) return '>99%'
+  // Playoff/championship locks now resolve to exactly 100 via the postseason
+  // override in scripts/simulate.ts (participants get playoff_pct=100), so show
+  // the real value including 100%. The old ">99%" cap predated that fix and was
+  // a workaround for sim noise (the "Braves issue").
+  if (n >= 99.95) return '100%'
   return n.toFixed(decimals) + '%'
 }
 

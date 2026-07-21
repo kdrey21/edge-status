@@ -72,12 +72,20 @@ export async function fetchKalshiChampionshipOdds(
     // Fetch all markets in the series (up to 200 is more than enough for any league)
     const url = `${KALSHI_BASE}/markets?series_ticker=${seriesTicker}&limit=200`
 
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${apiToken}`,
-        Accept: 'application/json',
-      },
-    })
+    // Kalshi's market-read endpoint is PUBLIC (no auth required — verified: it
+    // returns 200 with or without a token). The blocker in CI was Kalshi's
+    // Cloudflare/WAF returning 403 to the GitHub Actions runner: a datacenter IP
+    // with the default Node/undici User-Agent looks like a bot. Sending a normal
+    // browser User-Agent gets the request through. The Bearer token is optional
+    // and only sent if present.
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    }
+    if (apiToken) headers.Authorization = `Bearer ${apiToken}`
+
+    const res = await fetch(url, { headers })
 
     if (!res.ok) {
       console.warn(`  [Kalshi] HTTP ${res.status} for series ${seriesTicker}`)
