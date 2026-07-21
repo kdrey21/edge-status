@@ -108,6 +108,23 @@ async function main() {
         console.log(`  [${league.slug.toUpperCase()}] GB sample: ${gbSample}`)
 
         if (!isLeagueActive(teams, seasonPhase)) {
+          // A league that was in-season last run still has stale sim columns
+          // (playoff_pct etc.) in its rows. The home page keys "In Season" off
+          // playoff_pct != null, and the market-only upsert below only touches
+          // teams that match a futures market — so unmatched teams (or a failed
+          // market fetch) would leave the league stuck showing "In Season".
+          // Null the sim columns league-wide first to guarantee the flip.
+          const { error: clearErr } = await db
+            .from('sim_results')
+            .update({
+              playoff_pct: null, div_title_pct: null, conf_title_pct: null,
+              championship_pct: null, seed_distribution: null,
+              magic_number: null, elim_number: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('league', league.slug)
+          if (clearErr) console.warn(`  [${league.slug.toUpperCase()}] Sim-column clear failed: ${clearErr.message}`)
+
           // Off-season: skip simulation, but still fetch market futures if configured
           const canFetchOffSeasonMarkets =
             hasOddsKey && hasKalshiKey &&
