@@ -194,9 +194,12 @@ export default function TeamPageClient({ league, team }: Props) {
       .finally(() => setSimLoading(false))
   }, [league, teamAbbr]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch upcoming schedule from ESPN (best-effort; graceful CORS fallback)
+  // Fetch upcoming schedule from ESPN (best-effort; graceful CORS fallback).
+  // Skip for futures-only leagues (e.g. NCAAF) — no in-season schedule, and the
+  // college-football standings fetch is heavy. The schedule section is hidden in
+  // futures mode anyway.
   useEffect(() => {
-    if (!config) {
+    if (!config || config.futuresOnly) {
       setScheduleLoading(false)
       return
     }

@@ -4,7 +4,7 @@
 import LeaguePageClient from './LeaguePageClient'
 
 export function generateStaticParams() {
-  return ['nba', 'nhl', 'mlb', 'nfl', 'mls'].map(league => ({ league }))
+  return ['nba', 'nhl', 'mlb', 'nfl', 'mls', 'ncaaf'].map(league => ({ league }))
 }
 
 interface Props {

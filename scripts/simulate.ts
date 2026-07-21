@@ -14,7 +14,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
-import { LEAGUES } from '@/types'
+import { LEAGUES, type Game, type LeagueTeam } from '@/types'
 import { fetchStandings, fetchUpcomingGames, fetchCompletedGames, isLeagueActive, fetchPlayoffState, fetchSeasonPhase } from '@/lib/espn'
 import { runSimulation, buildH2HMatrix, type TrackedGameInput } from '@/lib/simulation'
 import { fetchSportsbookChampionshipOdds } from '@/lib/odds'
@@ -36,6 +36,24 @@ const ODDS_API_KEY = process.env.ODDS_API_KEY ?? null
 const KALSHI_API_TOKEN = process.env.KALSHI_API_TOKEN ?? null
 
 const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+/**
+ * Match a team's market-name key(s) to a value in a market map. Tries an EXACT
+ * key match first, then falls back to substring-both-ways. Exact-first matters
+ * for leagues with prefix-overlapping names (e.g. NCAAF "texas" would otherwise
+ * substring-match "texas a&m" / "texas tech" depending on map order).
+ */
+function matchMarketPct(keys: string[], map: Map<string, number>): number | null {
+  for (const key of keys) {
+    if (map.has(key)) return map.get(key)!
+  }
+  for (const key of keys) {
+    for (const [mk, mv] of map) {
+      if (mk.includes(key) || key.includes(mk)) return mv
+    }
+  }
+  return null
+}
 
 /**
  * Remove orphan rows for a league — stale team abbreviations left behind when
@@ -115,14 +133,24 @@ async function main() {
   await Promise.all(
     LEAGUES.map(async league => {
       try {
-        console.log(`  [${league.slug.toUpperCase()}] Fetching standings…`)
+        // Futures-only leagues (e.g. NCAAF) never sim, so skip the heavy ESPN
+        // standings/schedule fetch entirely — the market-only path only needs
+        // league.teams + market odds.
+        let teams: LeagueTeam[] = []
+        let espnGames: Game[] = []
+        let completedGames: Game[] = []
+        let seasonPhase: { name: string; inSeason: boolean } | null =
+          { name: 'Futures-only', inSeason: false }
 
-        const [teams, espnGames, completedGames, seasonPhase] = await Promise.all([
-          fetchStandings(league.espnPath, league.totalGames, league.coreLeague, league.coreSeasonType),
-          fetchUpcomingGames(league.espnPath),
-          fetchCompletedGames(league.espnPath),
-          fetchSeasonPhase(league.espnPath, league.coreLeague),
-        ])
+        if (!league.futuresOnly) {
+          console.log(`  [${league.slug.toUpperCase()}] Fetching standings…`)
+          ;[teams, espnGames, completedGames, seasonPhase] = await Promise.all([
+            fetchStandings(league.espnPath, league.totalGames, league.coreLeague, league.coreSeasonType),
+            fetchUpcomingGames(league.espnPath),
+            fetchCompletedGames(league.espnPath),
+            fetchSeasonPhase(league.espnPath, league.coreLeague),
+          ])
+        }
 
         console.log(
           `  [${league.slug.toUpperCase()}] ESPN phase: ${seasonPhase?.name ?? 'unknown'}` +
@@ -138,7 +166,7 @@ async function main() {
         const gbSample = teams.slice(0, 5).map(t => `${t.abbreviation}:${t.gamesBack.toFixed(1)}`).join(' ')
         console.log(`  [${league.slug.toUpperCase()}] GB sample: ${gbSample}`)
 
-        if (!isLeagueActive(teams, seasonPhase)) {
+        if (league.futuresOnly || !isLeagueActive(teams, seasonPhase)) {
           // A league that was in-season last run still has stale sim columns
           // (playoff_pct etc.) in its rows. The home page keys "In Season" off
           // playoff_pct != null, and the market-only upsert below only touches
@@ -195,25 +223,8 @@ async function main() {
               .filter(([, v]) => v === abbr)
               .map(([k]) => k)
 
-            let kalshi_champ_pct: number | null = null
-            let sportsbook_champ_pct: number | null = null
-
-            for (const key of marketKeys) {
-              if (kalshi_champ_pct == null) {
-                for (const [mk, mv] of kalshiMap) {
-                  if (mk.includes(key) || key.includes(mk)) {
-                    kalshi_champ_pct = mv; break
-                  }
-                }
-              }
-              if (sportsbook_champ_pct == null) {
-                for (const [ok, ov] of oddsMap) {
-                  if (ok.includes(key) || key.includes(ok)) {
-                    sportsbook_champ_pct = ov; break
-                  }
-                }
-              }
-            }
+            const kalshi_champ_pct = matchMarketPct(marketKeys, kalshiMap)
+            const sportsbook_champ_pct = matchMarketPct(marketKeys, oddsMap)
 
             // Only upsert teams found in at least one market
             if (kalshi_champ_pct == null && sportsbook_champ_pct == null) continue

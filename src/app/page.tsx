@@ -8,7 +8,7 @@ import LeagueCard from '@/components/LeagueCard'
 import { espnLogoUrl } from '@/lib/logos'
 
 const LEAGUE_NAMES: Record<string, string> = {
-  nba: 'NBA', nhl: 'NHL', mlb: 'MLB', nfl: 'NFL', mls: 'MLS',
+  nba: 'NBA', nhl: 'NHL', mlb: 'MLB', nfl: 'NFL', mls: 'MLS', ncaaf: 'NCAAF',
 }
 
 function EdgeRow({ edge }: { edge: TopEdge }) {

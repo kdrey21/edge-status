@@ -7,6 +7,7 @@ const LEAGUE_ICONS: Record<string, string> = {
   mlb: '⚾',
   nfl: '🏈',
   mls: '⚽',
+  ncaaf: '🏈',
 }
 
 type LeagueState = 'active' | 'futures' | 'inactive'

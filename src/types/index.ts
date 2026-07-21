@@ -73,6 +73,11 @@ export interface LeagueConfig {
   divisionMap?: Record<string, string>
   // Team abbr → conference name (short form, e.g. "AL", "NFC", "Eastern Conference")
   conferenceMap?: Record<string, string>
+  // Futures-only league: never run the Monte Carlo sim, always use the
+  // market-only futures path (Kalshi/sportsbook championship odds). Used for
+  // leagues whose playoff format the sim engine doesn't model — e.g. the
+  // college-football 12-team CFP. Shows Championship Futures year-round.
+  futuresOnly?: boolean
 }
 
 export const LEAGUES: LeagueConfig[] = [
@@ -356,6 +361,83 @@ export const LEAGUES: LeagueConfig[] = [
       ATX:'West', COL:'West', DAL:'West', HOU:'West', LA:'West',
       LAFC:'West',MIN:'West', NSH:'West', POR:'West', RSL:'West',
       SD:'West',  SEA:'West', SJ:'West',  SKC:'West', STL:'West', VAN:'West',
+    },
+  },
+  {
+    name: 'NCAAF',
+    slug: 'ncaaf',
+    sport: 'college-football',
+    espnPath: 'football/college-football',
+    coreLeague: 'college-football',
+    totalGames: 12,            // regular-season games (unused — futures-only)
+    playoffTeamsPerConference: 12, // CFP field (unused — futures-only)
+    oddsApiSport: 'americanfootball_ncaaf_championship_winner',
+    kalshiSeries: 'KXNCAAF',   // "NCAAF Championship" — national title futures
+    // The 12-team College Football Playoff over 130+ FBS teams is not modeled by
+    // the pro-league sim engine, so NCAAF runs as a futures-only league:
+    // championship futures (Kalshi + sportsbook) year-round, no Monte Carlo sim.
+    futuresOnly: true,
+    // Championship-futures contenders (Kalshi ticker suffix = internal abbr).
+    teams: [
+      'ALA', 'ARIZ', 'ARK', 'ASU', 'AUB', 'BAY', 'BYU', 'CAL', 'CLEM', 'FLA',
+      'FSU', 'GT', 'HOU', 'ILL', 'IND', 'IOWA', 'JMU', 'KSU', 'LOU', 'LSU',
+      'MIA', 'MICH', 'MISS', 'MIZZ', 'MOH', 'NCST', 'ND', 'OKLA', 'OKST', 'ORE',
+      'OSU', 'PITT', 'PSU', 'SCAR', 'SMU', 'TCU', 'TENN', 'TEX', 'TTU', 'TULN',
+      'TXAM', 'UGA', 'UK', 'UNT', 'USC', 'UTAH', 'UVA', 'VAN', 'VT', 'WASH',
+    ],
+    // Lowercase Kalshi yes_sub_title → abbr. Keys are the exact market names so
+    // they match exactly (avoids "texas" colliding with "texas a&m"/"texas tech").
+    marketNameMap: {
+      'alabama':            'ALA',
+      'arizona':            'ARIZ',
+      'arkansas':           'ARK',
+      'arizona st.':        'ASU',
+      'auburn':             'AUB',
+      'baylor':             'BAY',
+      'byu':                'BYU',
+      'california':         'CAL',
+      'clemson':            'CLEM',
+      'florida':            'FLA',
+      'florida st.':        'FSU',
+      'georgia tech':       'GT',
+      'houston':            'HOU',
+      'illinois':           'ILL',
+      'indiana':            'IND',
+      'iowa':               'IOWA',
+      'james madison':      'JMU',
+      'kansas st.':         'KSU',
+      'louisville':         'LOU',
+      'lsu':                'LSU',
+      'miami (fl)':         'MIA',
+      'michigan':           'MICH',
+      'ole miss':           'MISS',
+      'missouri':           'MIZZ',
+      'miami (oh)':         'MOH',
+      'north carolina st.': 'NCST',
+      'notre dame':         'ND',
+      'oklahoma':           'OKLA',
+      'oklahoma st.':       'OKST',
+      'oregon':             'ORE',
+      'ohio st.':           'OSU',
+      'pittsburgh':         'PITT',
+      'penn st.':           'PSU',
+      'south carolina':     'SCAR',
+      'smu':                'SMU',
+      'tcu':                'TCU',
+      'tennessee':          'TENN',
+      'texas':              'TEX',
+      'texas tech':         'TTU',
+      'tulane':             'TULN',
+      'texas a&m':          'TXAM',
+      'georgia':            'UGA',
+      'kentucky':           'UK',
+      'north texas':        'UNT',
+      'usc':                'USC',
+      'utah':               'UTAH',
+      'virginia':           'UVA',
+      'vanderbilt':         'VAN',
+      'virginia tech':      'VT',
+      'washington':         'WASH',
     },
   },
 ]
