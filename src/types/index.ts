@@ -414,7 +414,8 @@ export const LEAGUES: LeagueConfig[] = [
       'kansas state':       'KSU',
       'louisville':         'LOU',
       'lsu':                'LSU',
-      'miami (fl)':         'MIA',
+      'miami (fl)':         'MIA',   // Kalshi name
+      'miami hurricanes':   'MIA',   // Odds API name (bare "miami" would hit Miami OH)
       'michigan':           'MICH',
       'ole miss':           'MISS',
       'missouri':           'MIZZ',

@@ -214,13 +214,6 @@ async function main() {
             `  [${league.slug.toUpperCase()}] Odds=${oddsMap.size} teams  Kalshi=${kalshiMap.size} teams`,
           )
 
-          // TEMP DEBUG: dump Odds API team names containing "miami" (to fix the
-          // Miami (FL) sportsbook match). Remove after inspection.
-          if (league.slug === 'ncaaf') {
-            const miamiOdds = [...oddsMap.keys()].filter(k => k.includes('miami'))
-            console.log(`  [NCAAF][DEBUG] Odds 'miami*' names: ${JSON.stringify(miamiOdds)}`)
-          }
-
           const nameMap = league.marketNameMap!
           const rows: object[] = []
 
