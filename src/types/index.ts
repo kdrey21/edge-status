@@ -387,11 +387,15 @@ export const LEAGUES: LeagueConfig[] = [
     ],
     // Lowercase Kalshi yes_sub_title → abbr. Keys are the exact market names so
     // they match exactly (avoids "texas" colliding with "texas a&m"/"texas tech").
+    // "<school> state" aliases are added for the "St." teams so the sportsbook
+    // (Odds API) side — which spells them out — also matches. These are
+    // collision-safe (no "<x> state" is a substring of another team's name).
     marketNameMap: {
       'alabama':            'ALA',
       'arizona':            'ARIZ',
       'arkansas':           'ARK',
       'arizona st.':        'ASU',
+      'arizona state':      'ASU',
       'auburn':             'AUB',
       'baylor':             'BAY',
       'byu':                'BYU',
@@ -399,6 +403,7 @@ export const LEAGUES: LeagueConfig[] = [
       'clemson':            'CLEM',
       'florida':            'FLA',
       'florida st.':        'FSU',
+      'florida state':      'FSU',
       'georgia tech':       'GT',
       'houston':            'HOU',
       'illinois':           'ILL',
@@ -406,6 +411,7 @@ export const LEAGUES: LeagueConfig[] = [
       'iowa':               'IOWA',
       'james madison':      'JMU',
       'kansas st.':         'KSU',
+      'kansas state':       'KSU',
       'louisville':         'LOU',
       'lsu':                'LSU',
       'miami (fl)':         'MIA',
@@ -414,13 +420,18 @@ export const LEAGUES: LeagueConfig[] = [
       'missouri':           'MIZZ',
       'miami (oh)':         'MOH',
       'north carolina st.': 'NCST',
+      'north carolina state': 'NCST',
+      'nc state':           'NCST',
       'notre dame':         'ND',
       'oklahoma':           'OKLA',
       'oklahoma st.':       'OKST',
+      'oklahoma state':     'OKST',
       'oregon':             'ORE',
       'ohio st.':           'OSU',
+      'ohio state':         'OSU',
       'pittsburgh':         'PITT',
       'penn st.':           'PSU',
+      'penn state':         'PSU',
       'south carolina':     'SCAR',
       'smu':                'SMU',
       'tcu':                'TCU',

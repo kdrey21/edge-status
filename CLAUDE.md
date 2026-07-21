@@ -365,6 +365,36 @@ social card and/or a premium feature to drive traction.
 
 ---
 
+### Backlog 4 — In-season NCAAF (College Football Playoff) simulation
+**Context:** NCAAF was added as a **futures-only** league (`LeagueConfig.futuresOnly`):
+it shows national-championship futures (Kalshi `KXNCAAF` + sportsbook) year-round
+via the market-only path and **never runs the Monte Carlo sim**. The sim engine
+(`src/lib/simulation.ts`) only models the four pro playoff formats; the 12-team
+College Football Playoff over 130+ FBS teams is not implemented.
+
+**To make NCAAF in-season (playoff odds, not just futures):**
+- Model the CFP: 5 highest-ranked conference champions get in (top 4 seeded with
+  first-round byes), + 7 at-large; bracket is single-elimination. Seeding is by
+  CFP ranking, which is not a pure win% sort — approximate with record + a
+  strength signal (Elo already computed).
+- The `teams[]`/`marketNameMap` currently list only the ~50 futures contenders.
+  In-season needs the full FBS field and conference structure from ESPN
+  (`fetchGroupIds` already recurses conferences → this returns 130+ teams).
+- ESPN CFB standings/records are available via the same core API; verify the
+  `college-football` group nesting (FBS division → conferences → teams).
+- Remove `futuresOnly` (or gate it to the off-season) once the CFP sim exists.
+
+**Minor refinement (independent):** 8 of 50 futures teams matched Kalshi but not
+the sportsbook Odds API on the first pass — the "St." teams (Ohio St., Penn St.,
+etc.) and Miami (FL), because the Odds API spells them out ("Ohio State"). Added
+`"<school> state"` aliases to `marketNameMap` to fix the 7 "St." teams; **Miami
+(FL) may still lack book** (bare `miami` collides with Miami (OH)) — verify the
+Odds API's exact Miami naming and add a safe alias. Also spot-check that base
+teams (Florida, Oklahoma, Arizona, Texas) matched their OWN sportsbook line and
+not a "State"/"Tech" sibling via the substring fallback.
+
+---
+
 ### Backlog 3 — Futures-mode team page (hide empty sim fields)
 **Problem:** When a league is in off-season/**Futures** mode (NBA/NHL/NFL between
 seasons), a team's market-only Supabase row has all sim columns null
