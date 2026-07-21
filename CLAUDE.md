@@ -365,6 +365,55 @@ social card and/or a premium feature to drive traction.
 
 ---
 
+### Backlog 3 — Futures-mode team page (hide empty sim fields)
+**Problem:** When a league is in off-season/**Futures** mode (NBA/NHL/NFL between
+seasons), a team's market-only Supabase row has all sim columns null
+(`playoff_pct`, `div_title_pct`, `conf_title_pct`, `championship_pct`,
+`seed_distribution`, `magic_number`, `elim_number`, `wins`, `losses` = null) and
+only the market columns populated (`kalshi_champ_pct`, `sportsbook_champ_pct`,
+`champ_ev_pct`). The team page still renders the sim-oriented sections, so the
+user sees a grid of "—" placeholders and a division table whose W / L / GB /
+Playoff% / Champ% columns are all dashes. It reads as broken/empty.
+
+**Goal:** In Futures mode, show **only** the market vs. book cards and the trend
+chart (both already work with market data). Suppress everything that has no data.
+Applies to **all leagues** whenever the team's row is market-only. Keep the
+in-season layout exactly as-is.
+
+**Detection:** a row is Futures/market-only when `result.playoff_pct == null`
+(equivalently `result.wins == null`). Define once, e.g.
+`const isFutures = result.playoff_pct == null` in `TeamPageClient`.
+
+**Changes in `src/app/[league]/[team]/TeamPageClient.tsx`:**
+- **Hide when `isFutures`:**
+  - The 4-card "Key stats" grid (Make Playoffs / Win Division / Win Conference /
+    Win Championship) — lines ~405–430. All render "—".
+  - The Division standings table (lines ~318–402) — its W/L/GB/Playoff%/Champ%
+    are all dashes. Either hide the whole block, or (nicer) render a
+    market-only variant: Team + Kalshi% + Book% + Edge, sorted by Kalshi%.
+  - Position summary already self-hides (gated on `playoff_pct != null`) ✓.
+  - Magic/Elim and Seed distribution already self-hide ✓.
+- **Keep / verify in `isFutures`:**
+  - Market championship odds cards (Kalshi / Sportsbook / Market Edge) — already
+    conditional on the market columns; these are the "market vs book numbers".
+  - **Odds Trend chart** — currently passes `showPlayoff`/`showChamp`, both false
+    in Futures mode, so the chart may render empty. `TrendChart`
+    (`src/components/TrendChart.tsx`) must plot the **Kalshi% and Sportsbook%**
+    series when sim series are absent. Confirm `getTeamSnapshots` includes the
+    market columns (it selects `kalshi_champ_pct, sportsbook_champ_pct,
+    champ_ev_pct` — yes) and add/toggle those lines. This is the main real code
+    change; the rest is conditional hiding.
+  - Upcoming Schedule: off-season has no games — the existing fallback shows
+    "No upcoming games found." Prefer to hide the whole section when `isFutures`.
+- **Header copy:** the subtitle "Sim-based probabilities" (line ~287) is wrong in
+  Futures mode — swap to e.g. "Championship futures · market vs. model".
+
+**Note:** the sim already stops writing sim columns off-season (`marketNameMap`
+market-only path + the league-wide sim-column clear in `scripts/simulate.ts`), so
+no schema/sim work is needed — this is a pure team-page UI/UX gating task.
+
+---
+
 ## File Map
 
 ```
