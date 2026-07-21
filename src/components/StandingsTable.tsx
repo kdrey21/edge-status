@@ -5,6 +5,7 @@ import Link from 'next/link'
 import type { SimResult, LeagueConfig } from '@/types'
 import type { SnapPoint } from '@/lib/supabase'
 import Sparkline from '@/components/Sparkline'
+import { espnLogoUrl } from '@/lib/logos'
 
 type SortKey =
   | 'wins'
@@ -34,16 +35,6 @@ function evColor(ev: number): string {
   if (ev > 3)  return 'text-edge-pos'
   if (ev < -3) return 'text-edge-neg'
   return 'text-[#8892aa]'
-}
-
-// Map league slug → ESPN logo sport path segment
-const LOGO_SPORT: Record<string, string> = {
-  nba: 'nba', nhl: 'nhl', mlb: 'mlb', nfl: 'nfl', mls: 'soccer',
-}
-
-function espnLogoUrl(league: string, abbr: string): string {
-  const sport = LOGO_SPORT[league] ?? league
-  return `https://a.espncdn.com/i/teamlogos/${sport}/500/${abbr.toLowerCase()}.png`
 }
 
 function fmt(n: number | null, decimals = 1): string {

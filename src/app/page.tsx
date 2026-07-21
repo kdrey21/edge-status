@@ -5,18 +5,10 @@ import Link from 'next/link'
 import { LEAGUES } from '@/types'
 import { getAllLeaguesSummary, getTopEdges, type TopEdge } from '@/lib/supabase'
 import LeagueCard from '@/components/LeagueCard'
+import { espnLogoUrl } from '@/lib/logos'
 
 const LEAGUE_NAMES: Record<string, string> = {
   nba: 'NBA', nhl: 'NHL', mlb: 'MLB', nfl: 'NFL', mls: 'MLS',
-}
-
-const LOGO_SPORT: Record<string, string> = {
-  nba: 'nba', nhl: 'nhl', mlb: 'mlb', nfl: 'nfl', mls: 'soccer',
-}
-
-function espnLogoUrl(league: string, abbr: string): string {
-  const sport = LOGO_SPORT[league] ?? league
-  return `https://a.espncdn.com/i/teamlogos/${sport}/500/${abbr.toLowerCase()}.png`
 }
 
 function EdgeRow({ edge }: { edge: TopEdge }) {

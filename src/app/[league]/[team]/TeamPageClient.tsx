@@ -4,15 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { getLeague, type SimResult, type LeagueConfig } from '@/types'
-
-const LOGO_SPORT: Record<string, string> = {
-  nba: 'nba', nhl: 'nhl', mlb: 'mlb', nfl: 'nfl', mls: 'soccer',
-}
-
-function espnLogoUrl(league: string, abbr: string): string {
-  const sport = LOGO_SPORT[league] ?? league
-  return `https://a.espncdn.com/i/teamlogos/${sport}/500/${abbr.toLowerCase()}.png`
-}
+import { espnLogoUrl } from '@/lib/logos'
 import { getTeamResult, getLeagueResults, getLeagueImportantGames, getTeamSnapshots, type ImportantGame, type SnapPoint } from '@/lib/supabase'
 import ScheduleTable from '@/components/ScheduleTable'
 import type { Game, LeagueTeam } from '@/types'
