@@ -38,6 +38,37 @@ const KALSHI_API_TOKEN = process.env.KALSHI_API_TOKEN ?? null
 const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 /**
+ * Remove orphan rows for a league — stale team abbreviations left behind when
+ * ESPN changes a team's abbreviation (e.g. the Coyotes→Utah relocation, or a
+ * "UTAH" variant lingering after ESPN standardized on "UTA"). Without this the
+ * old abbr stays in sim_results forever and shows up as a duplicate team row.
+ *
+ * A row is valid if its team was written this run OR is a canonical/alias abbr
+ * declared in the league's `teams[]`. Everything else is deleted. This protects
+ * both ESPN-form rows not in teams[] (e.g. MLB writes CHW/ATH) and teams that
+ * are temporarily absent from an off-season market feed (still in teams[]).
+ */
+async function deleteOrphanRows(slug: string, validTeams: string[]): Promise<void> {
+  const valid = Array.from(new Set(validTeams.filter(Boolean)))
+  if (valid.length === 0) return
+  const { data, error } = await db
+    .from('sim_results')
+    .delete()
+    .eq('league', slug)
+    .not('team', 'in', `(${valid.join(',')})`)
+    .select('team')
+  if (error) {
+    console.warn(`  [${slug.toUpperCase()}] Orphan cleanup failed: ${error.message}`)
+    return
+  }
+  if (data && data.length > 0) {
+    console.log(
+      `  [${slug.toUpperCase()}] 🧹 Removed ${data.length} orphan row(s): ${data.map((r: { team: string }) => r.team).join(', ')}`,
+    )
+  }
+}
+
+/**
  * Match a full team name (from a market) to the closest team abbreviation
  * in our ESPN standings data.
  *
@@ -244,6 +275,13 @@ async function main() {
               ? ` | 🎯 ${edgeTeams.length} VALUE: ${edgeTeams.map((r: any) => `${r.team} +${r.champ_ev_pct.toFixed(1)}%`).join(', ')}`
               : ''),
           )
+          // Drop stale alias rows (e.g. NBA "UTAH" vs "UTA") so a team never
+          // appears twice. Valid = teams written this run + canonical teams[].
+          await deleteOrphanRows(league.slug, [
+            ...(rows as { team: string }[]).map(r => r.team),
+            ...league.teams,
+          ])
+
           results.push({ league: league.slug, teams: rows.length, status: 'market-only' })
           return
         }
@@ -477,6 +515,13 @@ async function main() {
           if (impErr) console.warn(`  [${league.slug.toUpperCase()}] Game importance write failed: ${impErr.message}`)
           else console.log(`  [${league.slug.toUpperCase()}] ✓ ${importanceRows.length} game importance rows upserted`)
         }
+
+        // Drop stale alias rows (e.g. relocated-team abbr changes) so a team
+        // never appears twice. Valid = teams written this run + canonical teams[].
+        await deleteOrphanRows(league.slug, [
+          ...rows.map(r => r.team),
+          ...league.teams,
+        ])
 
         const edgeTeams = rows.filter(r => r.champ_ev_pct != null && r.champ_ev_pct > 5)
         console.log(
