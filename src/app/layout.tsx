@@ -18,7 +18,7 @@ const spaceGrotesk = Space_Grotesk({
 })
 
 export const metadata: Metadata = {
-  title: 'EdgeStatus — Where Markets Disagree',
+  title: 'EdgeStatus — Where Futures Betting Markets Disagree',
   description: '50,000 Monte Carlo simulations daily. Surfaces where sportsbooks and prediction markets disagree on championship odds.',
 }
 

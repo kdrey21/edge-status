@@ -601,9 +601,54 @@ export async function fetchCompletedGames(espnPath: string): Promise<Game[]> {
   }
 }
 
-export function isLeagueActive(teams: LeagueTeam[]): boolean {
+/**
+ * ESPN's authoritative current phase for a league, read from the core
+ * league-root endpoint. ESPN keeps serving a *finished* season's full
+ * standings indefinitely (in July it still returns the completed 2025-26 NBA
+ * standings with full 82-game records), so standings alone cannot tell
+ * "season over" from "season in progress". This can.
+ *
+ * `inSeason` is true only during the regular season or postseason. Detection is
+ * by phase NAME, not the numeric type id: soccer uses league-specific numeric
+ * ids (e.g. MLS regular season = 13846) while the name stays "Regular Season".
+ */
+export async function fetchSeasonPhase(
+  espnPath: string,
+  coreLeague?: string,
+): Promise<{ name: string; inSeason: boolean } | null> {
+  const [sport, leagueFromPath] = espnPath.split('/')
+  const league = coreLeague ?? leagueFromPath
+  try {
+    const res = await fetch(
+      `https://sports.core.api.espn.com/v2/sports/${sport}/leagues/${league}`,
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    const type = data?.season?.type ?? {}
+    const name = String(type.name ?? '')
+    const abbr = String(type.abbreviation ?? '').toLowerCase()
+    const inSeason =
+      /regular season|post ?season|playoff/i.test(name) ||
+      abbr === 'reg' || abbr === 'post'
+    return { name: name || 'Unknown', inSeason }
+  } catch {
+    return null
+  }
+}
+
+export function isLeagueActive(
+  teams: LeagueTeam[],
+  phase?: { inSeason: boolean } | null,
+): boolean {
   if (teams.length < 4) return false
-  return teams.some(t => t.wins + t.losses + t.ties > 0)
+  // Authoritative ESPN phase wins when available: a league is active only during
+  // the regular season or postseason. ESPN keeps serving a finished season's
+  // full standings, so "any games ever played" stays true all off-season — the
+  // bug that made NBA/NHL read as "In Season" in July. The phase check fixes it.
+  if (phase) return phase.inSeason
+  // Fallback (phase endpoint unreachable): require games *remaining*, not merely
+  // "ever played", so a completed season correctly reads as inactive.
+  return teams.some(t => t.wins + t.losses + t.ties > 0 && t.gamesRemaining > 0)
 }
 
 /** Reconstructed state of the current postseason. */

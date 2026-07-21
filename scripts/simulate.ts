@@ -15,7 +15,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { LEAGUES } from '@/types'
-import { fetchStandings, fetchUpcomingGames, fetchCompletedGames, isLeagueActive, fetchPlayoffState } from '@/lib/espn'
+import { fetchStandings, fetchUpcomingGames, fetchCompletedGames, isLeagueActive, fetchPlayoffState, fetchSeasonPhase } from '@/lib/espn'
 import { runSimulation, buildH2HMatrix, type TrackedGameInput } from '@/lib/simulation'
 import { fetchSportsbookChampionshipOdds } from '@/lib/odds'
 import { fetchKalshiChampionshipOdds } from '@/lib/kalshi'
@@ -86,11 +86,17 @@ async function main() {
       try {
         console.log(`  [${league.slug.toUpperCase()}] Fetching standings…`)
 
-        const [teams, espnGames, completedGames] = await Promise.all([
+        const [teams, espnGames, completedGames, seasonPhase] = await Promise.all([
           fetchStandings(league.espnPath, league.totalGames, league.coreLeague, league.coreSeasonType),
           fetchUpcomingGames(league.espnPath),
           fetchCompletedGames(league.espnPath),
+          fetchSeasonPhase(league.espnPath, league.coreLeague),
         ])
+
+        console.log(
+          `  [${league.slug.toUpperCase()}] ESPN phase: ${seasonPhase?.name ?? 'unknown'}` +
+          ` → ${seasonPhase?.inSeason ? 'in-season' : 'off-season'}`,
+        )
 
         const h2hMatrix = buildH2HMatrix(completedGames)
         console.log(
@@ -101,7 +107,7 @@ async function main() {
         const gbSample = teams.slice(0, 5).map(t => `${t.abbreviation}:${t.gamesBack.toFixed(1)}`).join(' ')
         console.log(`  [${league.slug.toUpperCase()}] GB sample: ${gbSample}`)
 
-        if (!isLeagueActive(teams)) {
+        if (!isLeagueActive(teams, seasonPhase)) {
           // Off-season: skip simulation, but still fetch market futures if configured
           const canFetchOffSeasonMarkets =
             hasOddsKey && hasKalshiKey &&
