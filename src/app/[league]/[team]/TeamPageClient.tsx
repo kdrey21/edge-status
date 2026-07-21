@@ -263,6 +263,11 @@ export default function TeamPageClient({ league, team }: Props) {
     )
   }
 
+  // Futures / off-season mode: the row is market-only (all sim columns null),
+  // so the sim-oriented sections (key-stat grid, division table, schedule)
+  // would render nothing but "—". Show only the market-vs-book cards + trend.
+  const isFutures = result != null && result.playoff_pct == null
+
   return (
     <div>
       <div className="mb-8">
@@ -284,7 +289,7 @@ export default function TeamPageClient({ league, team }: Props) {
           />
           <h1 className="font-display text-4xl font-bold tracking-tight text-[#eef0f8]">{teamAbbr}</h1>
         </div>
-        <p className="text-[#484f6a] text-sm mt-1">{config.name} · Sim-based probabilities</p>
+        <p className="text-[#484f6a] text-sm mt-1">{config.name} · {isFutures ? 'Championship futures' : 'Sim-based probabilities'}</p>
       </div>
 
       {simLoading ? (
@@ -314,8 +319,8 @@ export default function TeamPageClient({ league, team }: Props) {
             ) : null
           })()}
 
-          {/* Division standings */}
-          {allResults.length > 0 && config.divisionMap && (() => {
+          {/* Division standings — hidden in futures mode (all sim columns null) */}
+          {!isFutures && allResults.length > 0 && config.divisionMap && (() => {
             const division = config.divisionMap[teamAbbr]
             if (!division) return null
 
@@ -401,33 +406,35 @@ export default function TeamPageClient({ league, team }: Props) {
             )
           })()}
 
-          {/* Key stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-            <StatCard
-              label="Make Playoffs"
-              value={result.playoff_pct != null ? result.playoff_pct.toFixed(1) + '%' : '—'}
-              color={result.playoff_pct != null ? pctColor(result.playoff_pct) : 'text-gray-500'}
-              tooltip="Probability of making the postseason in 50,000 simulated seasons."
-            />
-            <StatCard
-              label="Win Division"
-              value={result.div_title_pct != null ? result.div_title_pct.toFixed(1) + '%' : '—'}
-              color={result.div_title_pct != null ? pctColor(result.div_title_pct) : 'text-gray-500'}
-              tooltip="Probability of finishing first in the division."
-            />
-            <StatCard
-              label="Win Conference"
-              value={result.conf_title_pct != null ? result.conf_title_pct.toFixed(1) + '%' : '—'}
-              color={result.conf_title_pct != null ? pctColor(result.conf_title_pct) : 'text-gray-500'}
-              tooltip="Probability of winning the conference championship."
-            />
-            <StatCard
-              label="Win Championship"
-              value={result.championship_pct != null ? result.championship_pct.toFixed(1) + '%' : '—'}
-              color={result.championship_pct != null ? pctColor(result.championship_pct) : 'text-gray-500'}
-              tooltip="Probability of winning it all — based on simulated bracket outcomes."
-            />
-          </div>
+          {/* Key stats — sim probabilities; hidden in futures mode (all null) */}
+          {!isFutures && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+              <StatCard
+                label="Make Playoffs"
+                value={result.playoff_pct != null ? result.playoff_pct.toFixed(1) + '%' : '—'}
+                color={result.playoff_pct != null ? pctColor(result.playoff_pct) : 'text-gray-500'}
+                tooltip="Probability of making the postseason in 50,000 simulated seasons."
+              />
+              <StatCard
+                label="Win Division"
+                value={result.div_title_pct != null ? result.div_title_pct.toFixed(1) + '%' : '—'}
+                color={result.div_title_pct != null ? pctColor(result.div_title_pct) : 'text-gray-500'}
+                tooltip="Probability of finishing first in the division."
+              />
+              <StatCard
+                label="Win Conference"
+                value={result.conf_title_pct != null ? result.conf_title_pct.toFixed(1) + '%' : '—'}
+                color={result.conf_title_pct != null ? pctColor(result.conf_title_pct) : 'text-gray-500'}
+                tooltip="Probability of winning the conference championship."
+              />
+              <StatCard
+                label="Win Championship"
+                value={result.championship_pct != null ? result.championship_pct.toFixed(1) + '%' : '—'}
+                color={result.championship_pct != null ? pctColor(result.championship_pct) : 'text-gray-500'}
+                tooltip="Probability of winning it all — based on simulated bracket outcomes."
+              />
+            </div>
+          )}
 
           {/* Market championship odds — Kalshi + Sportsbook */}
           {(result.kalshi_champ_pct != null || result.sportsbook_champ_pct != null) && (
@@ -499,9 +506,11 @@ export default function TeamPageClient({ league, team }: Props) {
 
           {/* Trend chart — odds over time */}
           <div className="rounded-xl border border-surface-border bg-surface-card p-6 mb-6">
-            <h2 className="text-lg font-bold text-white mb-1">Odds Trend</h2>
+            <h2 className="text-lg font-bold text-white mb-1">
+              {isFutures ? 'Championship Futures Trend' : 'Odds Trend'}
+            </h2>
             <p className="text-xs text-gray-500 mb-4">
-              30-day history · updated daily
+              {isFutures ? 'Kalshi vs. sportsbook · 30-day history' : '30-day history · updated daily'}
             </p>
             <TrendChart
               snapshots={snapshots}
@@ -513,7 +522,8 @@ export default function TeamPageClient({ league, team }: Props) {
         </>
       )}
 
-      {/* Upcoming schedule — next 5 games with playoff impact */}
+      {/* Upcoming schedule — hidden in futures mode (no games in off-season) */}
+      {!isFutures && (
       <div className="rounded-xl border border-surface-border bg-surface-card p-5">
         <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a] mb-3">
           Upcoming Schedule
@@ -576,6 +586,7 @@ export default function TeamPageClient({ league, team }: Props) {
           )
         })()}
       </div>
+      )}
     </div>
   )
 }
