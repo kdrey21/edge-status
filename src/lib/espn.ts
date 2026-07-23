@@ -753,3 +753,130 @@ export async function fetchPlayoffState(espnPath: string): Promise<PlayoffState>
 
   return { participants, eliminations }
 }
+
+// ============================================================
+// College Football (FBS) — data for the CFP simulator (Phase 1)
+// ============================================================
+
+/** FBS conference group IDs → short display names. */
+export const CFB_CONFERENCES: Record<string, string> = {
+  '1': 'ACC', '4': 'Big 12', '5': 'Big Ten', '8': 'SEC',
+  '9': 'Pac-12', '12': 'C-USA', '15': 'MAC', '17': 'Mountain West',
+  '18': 'Independent', '37': 'Sun Belt', '151': 'American',
+}
+/** Power Four champions get a guaranteed CFP bid even if unranked. */
+export const CFB_POWER_FOUR = new Set(['ACC', 'Big 12', 'Big Ten', 'SEC'])
+/** Conferences that hold no championship game (bid via ranking only). */
+export const CFB_NO_TITLE_GAME = new Set(['Independent'])
+
+/** Rating for non-FBS (FCS) opponents — well below the worst FBS team. */
+export const CFB_FCS_FPI = -25
+
+export interface CfbTeam {
+  id: string
+  abbr: string
+  name: string
+  conferenceId: string
+  conference: string | null   // null = non-FBS (FCS) opponent, not playoff-eligible
+  fpi: number
+  isFbs: boolean
+}
+
+export interface CfbGame {
+  homeId: string
+  awayId: string
+  week: number
+  neutral: boolean
+  conferenceGame: boolean     // both teams in the same FBS conference
+  completed: boolean
+  homeScore: number | null
+  awayScore: number | null
+}
+
+export interface CfbSeason {
+  teams: Map<string, CfbTeam>
+  games: CfbGame[]
+}
+
+/** ESPN Football Power Index (net-points rating) per FBS team ID. */
+export async function fetchCfbFpi(year: number): Promise<Map<string, number>> {
+  const map = new Map<string, number>()
+  try {
+    const data = await espnFetch(
+      `${ESPN_CORE}/football/leagues/college-football/seasons/${year}/powerindex?limit=400`,
+    ) as { items?: Array<{ team?: { $ref?: string }; predictives?: Array<{ name: string; value: number }> }> }
+    for (const it of data.items ?? []) {
+      const id = refId(it.team?.$ref ?? '', 'teams')
+      const fpi = (it.predictives ?? []).find(p => p.name === 'fpi')?.value
+      if (id && typeof fpi === 'number') map.set(id, fpi)
+    }
+  } catch (e) {
+    console.warn(`  [CFB] FPI fetch failed: ${e}`)
+  }
+  return map
+}
+
+/**
+ * Fetch the full FBS season: every team (with conference + FPI) and every
+ * regular-season game (with home/away, neutral-site, conference-game, and
+ * completed result). Teams and schedule both come from the weekly scoreboard
+ * (each competitor carries conferenceId), so this is ~16 requests total.
+ */
+export async function fetchCfbSeason(year: number, weeks = 15): Promise<CfbSeason> {
+  const fpi = await fetchCfbFpi(year)
+  const teams = new Map<string, CfbTeam>()
+  const games: CfbGame[] = []
+
+  const weekData = await Promise.all(
+    Array.from({ length: weeks }, (_, i) =>
+      espnFetch(
+        `${ESPN_SITE}/football/college-football/scoreboard?dates=${year}&seasontype=2&week=${i + 1}&groups=80&limit=200`,
+      ).catch(() => null),
+    ),
+  )
+
+  for (let w = 0; w < weekData.length; w++) {
+    const d = weekData[w] as { events?: Array<Record<string, unknown>> } | null
+    if (!d?.events) continue
+    for (const ev of d.events) {
+      const comp = (ev.competitions as Array<Record<string, unknown>> | undefined)?.[0]
+      if (!comp) continue
+      const cs = (comp.competitors as Array<Record<string, unknown>> | undefined) ?? []
+      const home = cs.find(c => c.homeAway === 'home')
+      const away = cs.find(c => c.homeAway === 'away')
+      if (!home || !away) continue
+
+      for (const c of [home, away]) {
+        const t = c.team as Record<string, unknown>
+        const id = String(t.id)
+        if (!teams.has(id)) {
+          const confId = String(t.conferenceId ?? '')
+          const conference = CFB_CONFERENCES[confId] ?? null
+          teams.set(id, {
+            id,
+            abbr: String(t.abbreviation ?? id),
+            name: String(t.displayName ?? id),
+            conferenceId: confId,
+            conference,
+            fpi: fpi.get(id) ?? CFB_FCS_FPI,
+            isFbs: conference != null,
+          })
+        }
+      }
+
+      const status = comp.status as { type?: { completed?: boolean } } | undefined
+      const completed = status?.type?.completed === true
+      games.push({
+        homeId: String((home.team as { id: unknown }).id),
+        awayId: String((away.team as { id: unknown }).id),
+        week: w + 1,
+        neutral: comp.neutralSite === true,
+        conferenceGame: comp.conferenceCompetition === true,
+        completed,
+        homeScore: completed ? Number(home.score) : null,
+        awayScore: completed ? Number(away.score) : null,
+      })
+    }
+  }
+  return { teams, games }
+}
