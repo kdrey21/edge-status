@@ -365,33 +365,43 @@ social card and/or a premium feature to drive traction.
 
 ---
 
-### Backlog 4 — In-season NCAAF (College Football Playoff) simulation
-**Context:** NCAAF was added as a **futures-only** league (`LeagueConfig.futuresOnly`):
-it shows national-championship futures (Kalshi `KXNCAAF` + sportsbook) year-round
-via the market-only path and **never runs the Monte Carlo sim**. The sim engine
-(`src/lib/simulation.ts`) only models the four pro playoff formats; the 12-team
-College Football Playoff over 130+ FBS teams is not implemented.
+### NCAAF — College Football Playoff simulator (IMPLEMENTED)
+NCAAF runs a dedicated FPI-based CFP simulator (`LeagueConfig.cfbSim: true`),
+NOT the pro-league engine and no longer `futuresOnly`. It behaves like an
+in-season league (playoff odds + seed chart) with Kalshi/sportsbook futures
+attached. Files: `src/lib/cfbSimulation.ts` (model), `fetchCfbSeason`/
+`fetchCfbFpi` in `src/lib/espn.ts` (data), `runCfbLeague` in `scripts/simulate.ts`
+(pipeline).
 
-**To make NCAAF in-season (playoff odds, not just futures):**
-- Model the CFP: 5 highest-ranked conference champions get in (top 4 seeded with
-  first-round byes), + 7 at-large; bracket is single-elimination. Seeding is by
-  CFP ranking, which is not a pure win% sort — approximate with record + a
-  strength signal (Elo already computed).
-- The `teams[]`/`marketNameMap` currently list only the ~50 futures contenders.
-  In-season needs the full FBS field and conference structure from ESPN
-  (`fetchGroupIds` already recurses conferences → this returns 130+ teams).
-- ESPN CFB standings/records are available via the same core API; verify the
-  `college-football` group nesting (FBS division → conferences → teams).
-- Remove `futuresOnly` (or gate it to the off-season) once the CFP sim exists.
+**How it works** (per Monte Carlo run, all 138 FBS teams):
+- Strength = ESPN **FPI** (net-points rating), not record/Elo — CFB schedules are
+  short and unbalanced. Win prob = normal CDF of the FPI point-spread.
+- **Rating uncertainty** (the key calibration): each sim draws a persistent
+  per-team FPI offset (`ratingNoiseSd`), modeling that preseason FPI is an
+  estimate. Without it the model was ~3× more concentrated than the market
+  (favorite 24% vs Kalshi 9%). Calibrated to `marginSd≈17`, preseason
+  `ratingNoiseSd≈14`, which reproduces the market's concentration while keeping
+  structured per-team edges. Noise DECAYS with games played
+  (`ratingNoiseForProgress`: 14 preseason → floor 4) so confidence grows as the
+  season resolves.
+- Committee heuristic: rank by `FPI − 7·losses + champ bonus`; select 4
+  Power-Four champs + best G5 champ + 7 at-large; straight-seed 1–12 (top-4 byes);
+  simulate the bracket (round 1 on higher seed's campus, neutral after).
 
-**Minor refinement (independent):** 8 of 50 futures teams matched Kalshi but not
-the sportsbook Odds API on the first pass — the "St." teams (Ohio St., Penn St.,
-etc.) and Miami (FL), because the Odds API spells them out ("Ohio State"). Added
-`"<school> state"` aliases to `marketNameMap` to fix the 7 "St." teams; **Miami
-(FL) may still lack book** (bare `miami` collides with Miami (OH)) — verify the
-Odds API's exact Miami naming and add a safe alias. Also spot-check that base
-teams (Florida, Oklahoma, Arizona, Texas) matched their OWN sportsbook line and
-not a "State"/"Tech" sibling via the substring fallback.
+**Canonical team key = ESPN abbreviation** for all 138 teams (was Kalshi ticker
+in the futures-only version — remapped IND→IU, OKLA→OU, TXAM→TA&M, MIZZ→MIZ,
+MOH→M-OH, NCST→NCSU, SCAR→SC). `NCAAF_LOGO_ID` in `logos.ts` maps all 138
+ESPN-abbr→ESPN-id (CFB logos are keyed by numeric id, not abbr).
+
+**Remaining / calibration TODO:**
+- Model constants (`marginSd`, `ratingNoiseSd`, `LOSS_PENALTY`) are calibrated to
+  the *preseason* market. Re-check once real 2026 games are played (the model can
+  then be validated against outcomes, not just the market).
+- Miami (FL) sportsbook line resolved via the `'miami hurricanes'` alias (Odds
+  API name); confirmed 50/50 contenders + all top-15 title teams match Kalshi.
+- Minor UI: the team-page "Win Division" stat card shows "—" for CFB (no
+  divisions); the league standings table lists all 138 FBS teams (long). Consider
+  hiding the division card when `div_title_pct` is null and/or limiting the table.
 
 ---
 
