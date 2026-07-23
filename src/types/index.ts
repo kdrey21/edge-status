@@ -75,9 +75,12 @@ export interface LeagueConfig {
   conferenceMap?: Record<string, string>
   // Futures-only league: never run the Monte Carlo sim, always use the
   // market-only futures path (Kalshi/sportsbook championship odds). Used for
-  // leagues whose playoff format the sim engine doesn't model — e.g. the
-  // college-football 12-team CFP. Shows Championship Futures year-round.
+  // leagues whose playoff format the pro-sim engine doesn't model.
   futuresOnly?: boolean
+  // Use the dedicated college-football playoff simulator (FPI-based, models the
+  // 12-team CFP) instead of the pro-league sim, and attach market futures
+  // alongside. Mutually exclusive with futuresOnly.
+  cfbSim?: boolean
 }
 
 export const LEAGUES: LeagueConfig[] = [
@@ -369,27 +372,28 @@ export const LEAGUES: LeagueConfig[] = [
     sport: 'college-football',
     espnPath: 'football/college-football',
     coreLeague: 'college-football',
-    totalGames: 12,            // regular-season games (unused — futures-only)
-    playoffTeamsPerConference: 12, // CFP field (unused — futures-only)
+    totalGames: 12,            // FBS regular-season games
+    playoffTeamsPerConference: 12, // CFP field size (informational)
     oddsApiSport: 'americanfootball_ncaaf_championship_winner',
     kalshiSeries: 'KXNCAAF',   // "NCAAF Championship" — national title futures
-    // The 12-team College Football Playoff over 130+ FBS teams is not modeled by
-    // the pro-league sim engine, so NCAAF runs as a futures-only league:
-    // championship futures (Kalshi + sportsbook) year-round, no Monte Carlo sim.
-    futuresOnly: true,
-    // Championship-futures contenders (Kalshi ticker suffix = internal abbr).
+    // NCAAF uses the dedicated FPI-based CFP simulator (src/lib/cfbSimulation.ts),
+    // which models the 12-team College Football Playoff, and attaches Kalshi +
+    // sportsbook championship futures alongside for the market-edge view.
+    cfbSim: true,
+    // Championship-contender fallback list (ESPN abbreviations — the canonical
+    // team key). The full 138-team field comes from the sim → Supabase; these
+    // just guarantee the marquee team pages build without Supabase.
     teams: [
       'ALA', 'ARIZ', 'ARK', 'ASU', 'AUB', 'BAY', 'BYU', 'CAL', 'CLEM', 'FLA',
-      'FSU', 'GT', 'HOU', 'ILL', 'IND', 'IOWA', 'JMU', 'KSU', 'LOU', 'LSU',
-      'MIA', 'MICH', 'MISS', 'MIZZ', 'MOH', 'NCST', 'ND', 'OKLA', 'OKST', 'ORE',
-      'OSU', 'PITT', 'PSU', 'SCAR', 'SMU', 'TCU', 'TENN', 'TEX', 'TTU', 'TULN',
-      'TXAM', 'UGA', 'UK', 'UNT', 'USC', 'UTAH', 'UVA', 'VAN', 'VT', 'WASH',
+      'FSU', 'GT', 'HOU', 'ILL', 'IOWA', 'IU', 'JMU', 'KSU', 'LOU', 'LSU',
+      'M-OH', 'MIA', 'MICH', 'MISS', 'MIZ', 'NCSU', 'ND', 'OKST', 'ORE', 'OSU',
+      'OU', 'PITT', 'PSU', 'SC', 'SMU', 'TA&M', 'TCU', 'TENN', 'TEX', 'TTU',
+      'TULN', 'UGA', 'UK', 'UNT', 'USC', 'UTAH', 'UVA', 'VAN', 'VT', 'WASH',
     ],
-    // Lowercase Kalshi yes_sub_title → abbr. Keys are the exact market names so
-    // they match exactly (avoids "texas" colliding with "texas a&m"/"texas tech").
-    // "<school> state" aliases are added for the "St." teams so the sportsbook
-    // (Odds API) side — which spells them out — also matches. These are
-    // collision-safe (no "<x> state" is a substring of another team's name).
+    // Lowercase market team name → ESPN abbr (the canonical key the sim writes).
+    // Exact Kalshi yes_sub_titles as keys (so "texas" can't collide with "texas
+    // a&m"/"texas tech"), plus "<school> state" / "hurricanes" aliases so the
+    // sportsbook (Odds API) spelled-out names also match. Collision-safe.
     marketNameMap: {
       'alabama':            'ALA',
       'arizona':            'ARIZ',
@@ -407,7 +411,7 @@ export const LEAGUES: LeagueConfig[] = [
       'georgia tech':       'GT',
       'houston':            'HOU',
       'illinois':           'ILL',
-      'indiana':            'IND',
+      'indiana':            'IU',
       'iowa':               'IOWA',
       'james madison':      'JMU',
       'kansas st.':         'KSU',
@@ -418,13 +422,13 @@ export const LEAGUES: LeagueConfig[] = [
       'miami hurricanes':   'MIA',   // Odds API name (bare "miami" would hit Miami OH)
       'michigan':           'MICH',
       'ole miss':           'MISS',
-      'missouri':           'MIZZ',
-      'miami (oh)':         'MOH',
-      'north carolina st.': 'NCST',
-      'north carolina state': 'NCST',
-      'nc state':           'NCST',
+      'missouri':           'MIZ',
+      'miami (oh)':         'M-OH',
+      'north carolina st.': 'NCSU',
+      'north carolina state': 'NCSU',
+      'nc state':           'NCSU',
       'notre dame':         'ND',
-      'oklahoma':           'OKLA',
+      'oklahoma':           'OU',
       'oklahoma st.':       'OKST',
       'oklahoma state':     'OKST',
       'oregon':             'ORE',
@@ -433,14 +437,14 @@ export const LEAGUES: LeagueConfig[] = [
       'pittsburgh':         'PITT',
       'penn st.':           'PSU',
       'penn state':         'PSU',
-      'south carolina':     'SCAR',
+      'south carolina':     'SC',
       'smu':                'SMU',
       'tcu':                'TCU',
       'tennessee':          'TENN',
       'texas':              'TEX',
       'texas tech':         'TTU',
       'tulane':             'TULN',
-      'texas a&m':          'TXAM',
+      'texas a&m':          'TA&M',
       'georgia':            'UGA',
       'kentucky':           'UK',
       'north texas':        'UNT',

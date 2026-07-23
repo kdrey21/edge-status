@@ -14,8 +14,9 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
-import { LEAGUES, type Game, type LeagueTeam } from '@/types'
-import { fetchStandings, fetchUpcomingGames, fetchCompletedGames, isLeagueActive, fetchPlayoffState, fetchSeasonPhase } from '@/lib/espn'
+import { LEAGUES, type Game, type LeagueTeam, type LeagueConfig } from '@/types'
+import { fetchStandings, fetchUpcomingGames, fetchCompletedGames, isLeagueActive, fetchPlayoffState, fetchSeasonPhase, fetchCfbSeason } from '@/lib/espn'
+import { simulateCfb, ratingNoiseForProgress } from '@/lib/cfbSimulation'
 import { runSimulation, buildH2HMatrix, type TrackedGameInput } from '@/lib/simulation'
 import { fetchSportsbookChampionshipOdds } from '@/lib/odds'
 import { fetchKalshiChampionshipOdds } from '@/lib/kalshi'
@@ -130,12 +131,112 @@ async function main() {
 
   const results: { league: string; teams: number; status: string }[] = []
 
+  // College Football Playoff pipeline: FPI-based CFP sim (all 138 FBS teams) +
+  // Kalshi/sportsbook championship futures attached to the same rows.
+  async function runCfbLeague(league: LeagueConfig): Promise<void> {
+    const now = new Date()
+    // ESPN keys a CFB season by its start year; in January the season is last year's.
+    const cfbYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear()
+    console.log(`  [${league.slug.toUpperCase()}] Fetching CFB ${cfbYear} season (FPI + schedule)…`)
+    const season = await fetchCfbSeason(cfbYear)
+    const fbsCount = [...season.teams.values()].filter(t => t.isFbs).length
+    const completed = season.games.filter(g => g.completed).length
+    const frac = season.games.length > 0 ? completed / season.games.length : 0
+    const noise = ratingNoiseForProgress(frac)
+    console.log(
+      `  [${league.slug.toUpperCase()}] FBS=${fbsCount} games=${season.games.length} completed=${completed} → ratingNoise=${noise.toFixed(1)}`,
+    )
+
+    const sim = simulateCfb(season, 20000, { ratingNoiseSd: noise })
+
+    // Actual W/L to date from completed games, keyed by team id.
+    const actual = new Map<string, { w: number; l: number }>()
+    for (const g of season.games) {
+      if (!g.completed || g.homeScore == null || g.awayScore == null) continue
+      const homeWon = g.homeScore > g.awayScore
+      for (const [id, won] of [[g.homeId, homeWon], [g.awayId, !homeWon]] as const) {
+        if (!season.teams.get(id)?.isFbs) continue
+        const r = actual.get(id) ?? { w: 0, l: 0 }
+        if (won) r.w++; else r.l++
+        actual.set(id, r)
+      }
+    }
+
+    // Championship futures (Kalshi + sportsbook), matched onto ESPN abbrs.
+    let oddsMap = new Map<string, number>()
+    let kalshiMap = new Map<string, number>()
+    if (hasOddsKey && hasKalshiKey && league.oddsApiSport && league.kalshiSeries) {
+      const [o, k] = await Promise.allSettled([
+        fetchSportsbookChampionshipOdds(league.oddsApiSport, ODDS_API_KEY!),
+        fetchKalshiChampionshipOdds(league.kalshiSeries, KALSHI_API_TOKEN!),
+      ])
+      if (o.status === 'fulfilled') oddsMap = o.value
+      if (k.status === 'fulfilled') kalshiMap = k.value
+      console.log(`  [${league.slug.toUpperCase()}] Odds=${oddsMap.size} teams  Kalshi=${kalshiMap.size} teams`)
+    }
+    const nameMap = league.marketNameMap ?? {}
+
+    const nowIso = new Date().toISOString()
+    const rows = sim.map(r => {
+      const keys = Object.entries(nameMap).filter(([, v]) => v === r.abbr).map(([kk]) => kk)
+      const kalshi = matchMarketPct(keys, kalshiMap)
+      const book = matchMarketPct(keys, oddsMap)
+      const rec = actual.get(r.id) ?? { w: 0, l: 0 }
+      return {
+        team: r.abbr,
+        league: league.slug,
+        wins: rec.w,
+        losses: rec.l,
+        games_back: null,
+        playoff_pct: r.playoffPct,
+        div_title_pct: null,
+        conf_title_pct: r.confChampPct,
+        championship_pct: r.championshipPct,
+        seed_distribution: r.seedDistribution,
+        magic_number: null,
+        elim_number: null,
+        kalshi_champ_pct: kalshi,
+        sportsbook_champ_pct: book,
+        champ_ev_pct: kalshi != null && book != null ? kalshi - book : null,
+        updated_at: nowIso,
+      }
+    })
+
+    const { error } = await db.from('sim_results').upsert(rows, { onConflict: 'team,league' })
+    if (error) throw error
+
+    const snapDate = nowIso.split('T')[0]
+    const snapRows = rows.map(r => ({
+      team: r.team, league: r.league, snap_date: snapDate,
+      playoff_pct: r.playoff_pct, div_title_pct: r.div_title_pct,
+      championship_pct: r.championship_pct, kalshi_champ_pct: r.kalshi_champ_pct,
+      sportsbook_champ_pct: r.sportsbook_champ_pct, champ_ev_pct: r.champ_ev_pct,
+    }))
+    const { error: snapErr } = await db.from('sim_snapshots').upsert(snapRows, { onConflict: 'team,league,snap_date' })
+    if (snapErr) console.warn(`  [${league.slug.toUpperCase()}] Snapshot write failed: ${snapErr.message}`)
+
+    await deleteOrphanRows(league.slug, rows.map(r => r.team))
+
+    const withMarket = rows.filter(r => r.kalshi_champ_pct != null).length
+    const topChamp = [...sim].sort((a, b) => b.championshipPct - a.championshipPct).slice(0, 3)
+    console.log(
+      `  [${league.slug.toUpperCase()}] ✓ ${rows.length} CFB rows upserted (${withMarket} with market) | ` +
+      `title favs: ${topChamp.map(t => `${t.abbr} ${t.championshipPct.toFixed(1)}%`).join(', ')}`,
+    )
+    results.push({ league: league.slug, teams: rows.length, status: 'cfb-sim' })
+  }
+
   await Promise.all(
     LEAGUES.map(async league => {
       try {
-        // Futures-only leagues (e.g. NCAAF) never sim, so skip the heavy ESPN
-        // standings/schedule fetch entirely — the market-only path only needs
-        // league.teams + market odds.
+        // College Football Playoff — dedicated FPI-based simulator + market futures.
+        if (league.cfbSim) {
+          await runCfbLeague(league)
+          return
+        }
+
+        // Futures-only leagues never sim, so skip the heavy ESPN standings/schedule
+        // fetch entirely — the market-only path only needs league.teams + odds.
         let teams: LeagueTeam[] = []
         let espnGames: Game[] = []
         let completedGames: Game[] = []

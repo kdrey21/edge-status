@@ -199,7 +199,7 @@ export default function TeamPageClient({ league, team }: Props) {
   // college-football standings fetch is heavy. The schedule section is hidden in
   // futures mode anyway.
   useEffect(() => {
-    if (!config || config.futuresOnly) {
+    if (!config || config.futuresOnly || config.cfbSim) {
       setScheduleLoading(false)
       return
     }
