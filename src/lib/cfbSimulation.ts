@@ -21,16 +21,44 @@
 import type { CfbSeason } from './espn'
 import { CFB_NO_TITLE_GAME, CFB_POWER_FOUR } from './espn'
 
-// --- Tunable model constants (calibrate against results once games are played) ---
+// --- Tunable model constants (calibrate against the market / results) ---
 /** CFB home-field advantage, in points added to the home team's expected margin. */
 const HOME_FIELD_PTS = 2.4
 /** Std dev of actual game margin around the FPI-expected margin, in points. */
-const MARGIN_SD = 14.5
+const DEFAULT_MARGIN_SD = 17
+/**
+ * Season-long per-team rating uncertainty (FPI points). Each sim draws a
+ * persistent offset for every team, modeling that preseason FPI is an estimate,
+ * not truth. This is the dominant lever for de-concentrating championship odds —
+ * without it a pure-FPI sim is far more confident than the market. 0 = off.
+ *
+ * Calibrated to Kalshi's CFB championship market in preseason (favorite ~9%,
+ * top-5 ~41%). Should DECAY as games are played — see ratingNoiseForProgress.
+ */
+const DEFAULT_RATING_NOISE_SD = 14
+/** Late-season floor for rating uncertainty (never fully certain of true strength). */
+const RATING_NOISE_FLOOR = 4
+
+/**
+ * Rating uncertainty for a given point in the season. Full uncertainty in
+ * preseason (0 games), decaying linearly toward a floor as the season plays out
+ * — records + updated FPI make true strength progressively clearer.
+ * @param completedFraction  completed games / total scheduled games, 0..1.
+ */
+export function ratingNoiseForProgress(completedFraction: number): number {
+  const f = Math.max(0, Math.min(1, completedFraction))
+  return RATING_NOISE_FLOOR + (DEFAULT_RATING_NOISE_SD - RATING_NOISE_FLOOR) * (1 - f)
+}
 /** Committee "cost" of each loss, in FPI-equivalent points (loss-aversion). */
 const LOSS_PENALTY = 7
 /** Committee bonus for winning your conference (rewards championships in seeding). */
 const CHAMP_BONUS = 2
 const DEFAULT_SIMS = 10000
+
+export interface CfbSimOptions {
+  marginSd?: number
+  ratingNoiseSd?: number
+}
 
 /** Standard normal CDF (Abramowitz & Stegun 26.2.17 approximation). */
 function normCdf(x: number): number {
@@ -41,15 +69,23 @@ function normCdf(x: number): number {
   return x > 0 ? 1 - p : p
 }
 
-/** P(home team wins) from FPI ratings, accounting for home field / neutral site. */
-function homeWinProb(homeFpi: number, awayFpi: number, neutral: boolean): number {
+/** Standard normal sample (Box–Muller). */
+function gaussian(): number {
+  let u = 0, v = 0
+  while (u === 0) u = Math.random()
+  while (v === 0) v = Math.random()
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
+}
+
+/** P(home team wins) from ratings, accounting for home field / neutral site. */
+function homeWinProb(homeFpi: number, awayFpi: number, neutral: boolean, sd: number): number {
   const margin = homeFpi - awayFpi + (neutral ? 0 : HOME_FIELD_PTS)
-  return normCdf(margin / MARGIN_SD)
+  return normCdf(margin / sd)
 }
 
 /** Simulate one game, return true if team A wins. `homeA` = A is the home team. */
-function aWins(fpiA: number, fpiB: number, neutral: boolean, homeA: boolean): boolean {
-  const p = homeA ? homeWinProb(fpiA, fpiB, neutral) : 1 - homeWinProb(fpiB, fpiA, neutral)
+function aWins(fpiA: number, fpiB: number, neutral: boolean, homeA: boolean, sd: number): boolean {
+  const p = homeA ? homeWinProb(fpiA, fpiB, neutral, sd) : 1 - homeWinProb(fpiB, fpiA, neutral, sd)
   return Math.random() < p
 }
 
@@ -76,12 +112,20 @@ interface Rec {
   confLosses: number
 }
 
-export function simulateCfb(season: CfbSeason, sims = DEFAULT_SIMS): CfbTeamResult[] {
+export function simulateCfb(
+  season: CfbSeason,
+  sims = DEFAULT_SIMS,
+  opts: CfbSimOptions = {},
+): CfbTeamResult[] {
+  const sd = opts.marginSd ?? DEFAULT_MARGIN_SD
+  const ratingNoiseSd = opts.ratingNoiseSd ?? DEFAULT_RATING_NOISE_SD
   const fbs = [...season.teams.values()].filter(t => t.isFbs)
   const n = fbs.length
   const idx = new Map<string, number>()
   fbs.forEach((t, i) => idx.set(t.id, i))
   const fpi = fbs.map(t => t.fpi)
+  // Per-sim "true" strength = published FPI + a persistent random offset.
+  const effFpi = fpi.slice()
 
   // FPI rank (1 = best) for reporting.
   const fpiRank = new Map<string, number>()
@@ -114,7 +158,12 @@ export function simulateCfb(season: CfbSeason, sims = DEFAULT_SIMS): CfbTeamResu
   for (let s = 0; s < sims; s++) {
     for (let i = 0; i < n; i++) { rec[i].wins = 0; rec[i].losses = 0; rec[i].confWins = 0; rec[i].confLosses = 0 }
 
-    // 1) Regular season
+    // Draw this season's "true" strengths: FPI + a persistent per-team offset.
+    if (ratingNoiseSd > 0) {
+      for (let i = 0; i < n; i++) effFpi[i] = fpi[i] + gaussian() * ratingNoiseSd
+    }
+
+    // 1) Regular season (games decided by true strength `effFpi`)
     for (const g of season.games) {
       const hi = idx.get(g.homeId)
       const ai = idx.get(g.awayId)
@@ -124,9 +173,9 @@ export function simulateCfb(season: CfbSeason, sims = DEFAULT_SIMS): CfbTeamResu
       if (g.completed && g.homeScore != null && g.awayScore != null) {
         homeWon = g.homeScore > g.awayScore
       } else {
-        const hFpi = hi !== undefined ? fpi[hi] : season.teams.get(g.homeId)!.fpi
-        const aFpi = ai !== undefined ? fpi[ai] : season.teams.get(g.awayId)!.fpi
-        homeWon = Math.random() < homeWinProb(hFpi, aFpi, g.neutral)
+        const hFpi = hi !== undefined ? effFpi[hi] : season.teams.get(g.homeId)!.fpi
+        const aFpi = ai !== undefined ? effFpi[ai] : season.teams.get(g.awayId)!.fpi
+        homeWon = Math.random() < homeWinProb(hFpi, aFpi, g.neutral, sd)
       }
 
       if (hi !== undefined) {
@@ -145,9 +194,9 @@ export function simulateCfb(season: CfbSeason, sims = DEFAULT_SIMS): CfbTeamResu
     const champOf = new Map<string, number>()
     for (const [conf, members] of confTeams) {
       if (CFB_NO_TITLE_GAME.has(conf) || members.length < 2) continue
-      const ranked = [...members].sort((a, b) => confRank(rec[a], rec[b], fpi[a], fpi[b]))
+      const ranked = [...members].sort((a, b) => confRank(rec[a], rec[b], effFpi[a], effFpi[b]))
       const [top, second] = ranked
-      const champ = aWins(fpi[top], fpi[second], true, true) ? top : second
+      const champ = aWins(effFpi[top], effFpi[second], true, true, sd) ? top : second
       champOf.set(conf, champ)
       confTitles[champ]++
     }
@@ -185,7 +234,7 @@ export function simulateCfb(season: CfbSeason, sims = DEFAULT_SIMS): CfbTeamResu
     }
 
     // 6) Bracket (12-team, straight seeding). seeds[k] = (k+1) seed.
-    const champion = simulateBracket(seeds, fpi)
+    const champion = simulateBracket(seeds, effFpi, sd)
     if (champion >= 0) titles[champion]++
   }
 
@@ -217,32 +266,32 @@ export function simulateCfb(season: CfbSeason, sims = DEFAULT_SIMS): CfbTeamResu
  * first round hosted by the higher seed; everything after is neutral-site.
  * Bracket: 1 v W(8/9), 4 v W(5/12) meet; 2 v W(7/10), 3 v W(6/11) meet.
  */
-function simulateBracket(seeds: number[], fpi: number[]): number {
+function simulateBracket(seeds: number[], fpi: number[], sd: number): number {
   if (seeds.length < 12) return -1
   const s = (k: number) => seeds[k - 1] // 1-indexed seed → team index
 
   // First round (higher seed hosts).
-  const g5v12 = aWins(fpi[s(5)], fpi[s(12)], false, true) ? s(5) : s(12)
-  const g6v11 = aWins(fpi[s(6)], fpi[s(11)], false, true) ? s(6) : s(11)
-  const g7v10 = aWins(fpi[s(7)], fpi[s(10)], false, true) ? s(7) : s(10)
-  const g8v9 = aWins(fpi[s(8)], fpi[s(9)], false, true) ? s(8) : s(9)
+  const g5v12 = aWins(fpi[s(5)], fpi[s(12)], false, true, sd) ? s(5) : s(12)
+  const g6v11 = aWins(fpi[s(6)], fpi[s(11)], false, true, sd) ? s(6) : s(11)
+  const g7v10 = aWins(fpi[s(7)], fpi[s(10)], false, true, sd) ? s(7) : s(10)
+  const g8v9 = aWins(fpi[s(8)], fpi[s(9)], false, true, sd) ? s(8) : s(9)
 
   // Quarterfinals (neutral).
-  const qf1 = neutralWinner(s(1), g8v9, fpi)   // 1 vs W(8/9)
-  const qf4 = neutralWinner(s(4), g5v12, fpi)  // 4 vs W(5/12)
-  const qf2 = neutralWinner(s(2), g7v10, fpi)  // 2 vs W(7/10)
-  const qf3 = neutralWinner(s(3), g6v11, fpi)  // 3 vs W(6/11)
+  const qf1 = neutralWinner(s(1), g8v9, fpi, sd)   // 1 vs W(8/9)
+  const qf4 = neutralWinner(s(4), g5v12, fpi, sd)  // 4 vs W(5/12)
+  const qf2 = neutralWinner(s(2), g7v10, fpi, sd)  // 2 vs W(7/10)
+  const qf3 = neutralWinner(s(3), g6v11, fpi, sd)  // 3 vs W(6/11)
 
   // Semifinals (neutral): (1-side vs 4-side), (2-side vs 3-side).
-  const sf1 = neutralWinner(qf1, qf4, fpi)
-  const sf2 = neutralWinner(qf2, qf3, fpi)
+  const sf1 = neutralWinner(qf1, qf4, fpi, sd)
+  const sf2 = neutralWinner(qf2, qf3, fpi, sd)
 
   // Final (neutral).
-  return neutralWinner(sf1, sf2, fpi)
+  return neutralWinner(sf1, sf2, fpi, sd)
 }
 
-function neutralWinner(a: number, b: number, fpi: number[]): number {
-  return aWins(fpi[a], fpi[b], true, true) ? a : b
+function neutralWinner(a: number, b: number, fpi: number[], sd: number): number {
+  return aWins(fpi[a], fpi[b], true, true, sd) ? a : b
 }
 
 /** Sort comparator: better conference standing first (conf win%, then FPI). */
