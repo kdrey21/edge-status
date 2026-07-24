@@ -401,35 +401,41 @@ export default function TeamPageClient({ league, team }: Props) {
             )
           })()}
 
-          {/* Key stats — sim probabilities; hidden in futures mode (all null) */}
-          {!isFutures && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-              <StatCard
-                label="Make Playoffs"
-                value={result.playoff_pct != null ? result.playoff_pct.toFixed(1) + '%' : '—'}
-                color={result.playoff_pct != null ? pctColor(result.playoff_pct) : 'text-gray-500'}
-                tooltip="Probability of making the postseason in 50,000 simulated seasons."
-              />
-              <StatCard
-                label="Win Division"
-                value={result.div_title_pct != null ? result.div_title_pct.toFixed(1) + '%' : '—'}
-                color={result.div_title_pct != null ? pctColor(result.div_title_pct) : 'text-gray-500'}
-                tooltip="Probability of finishing first in the division."
-              />
-              <StatCard
-                label="Win Conference"
-                value={result.conf_title_pct != null ? result.conf_title_pct.toFixed(1) + '%' : '—'}
-                color={result.conf_title_pct != null ? pctColor(result.conf_title_pct) : 'text-gray-500'}
-                tooltip="Probability of winning the conference championship."
-              />
-              <StatCard
-                label="Win Championship"
-                value={result.championship_pct != null ? result.championship_pct.toFixed(1) + '%' : '—'}
-                color={result.championship_pct != null ? pctColor(result.championship_pct) : 'text-gray-500'}
-                tooltip="Probability of winning it all — based on simulated bracket outcomes."
-              />
-            </div>
-          )}
+          {/* Key stats — sim probabilities; hidden in futures mode (all null).
+             Leagues without divisions (e.g. NCAAF) drop the "Win Division" card. */}
+          {!isFutures && (() => {
+            const showDivision = !!config.divisionMap
+            return (
+              <div className={`grid grid-cols-2 ${showDivision ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-3 mb-4`}>
+                <StatCard
+                  label="Make Playoffs"
+                  value={result.playoff_pct != null ? result.playoff_pct.toFixed(1) + '%' : '—'}
+                  color={result.playoff_pct != null ? pctColor(result.playoff_pct) : 'text-gray-500'}
+                  tooltip="Probability of making the postseason in 50,000 simulated seasons."
+                />
+                {showDivision && (
+                  <StatCard
+                    label="Win Division"
+                    value={result.div_title_pct != null ? result.div_title_pct.toFixed(1) + '%' : '—'}
+                    color={result.div_title_pct != null ? pctColor(result.div_title_pct) : 'text-gray-500'}
+                    tooltip="Probability of finishing first in the division."
+                  />
+                )}
+                <StatCard
+                  label="Win Conference"
+                  value={result.conf_title_pct != null ? result.conf_title_pct.toFixed(1) + '%' : '—'}
+                  color={result.conf_title_pct != null ? pctColor(result.conf_title_pct) : 'text-gray-500'}
+                  tooltip="Probability of winning the conference championship."
+                />
+                <StatCard
+                  label="Win Championship"
+                  value={result.championship_pct != null ? result.championship_pct.toFixed(1) + '%' : '—'}
+                  color={result.championship_pct != null ? pctColor(result.championship_pct) : 'text-gray-500'}
+                  tooltip="Probability of winning it all — based on simulated bracket outcomes."
+                />
+              </div>
+            )
+          })()}
 
           {/* Market championship odds — Kalshi + Sportsbook */}
           {(result.kalshi_champ_pct != null || result.sportsbook_champ_pct != null) && (
