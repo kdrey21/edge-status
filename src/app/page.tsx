@@ -11,6 +11,17 @@ const LEAGUE_NAMES: Record<string, string> = {
   nba: 'NBA', nhl: 'NHL', mlb: 'MLB', nfl: 'NFL', mls: 'MLS', ncaaf: 'NCAAF',
 }
 
+// Home-page card order (NCAAF sits right under NFL, above MLS). Any league not
+// listed falls to the end in its original LEAGUES order.
+const HOME_LEAGUE_ORDER = ['nba', 'nhl', 'mlb', 'nfl', 'ncaaf', 'mls']
+const orderedLeagues = [...LEAGUES].sort(
+  (a, b) => {
+    const ai = HOME_LEAGUE_ORDER.indexOf(a.slug)
+    const bi = HOME_LEAGUE_ORDER.indexOf(b.slug)
+    return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi)
+  },
+)
+
 function EdgeRow({ edge }: { edge: TopEdge }) {
   return (
     <Link
@@ -139,7 +150,7 @@ export default function HomePage() {
         All Leagues
       </h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {LEAGUES.map(league => {
+        {orderedLeagues.map(league => {
           const data = summaryMap.get(league.slug)
           const state =
             data == null || data.count === 0
