@@ -66,8 +66,9 @@ export default function ParlayOfMonth({ parlay }: { parlay: Parlay }) {
       </div>
 
       <p className="px-4 pb-2 text-[10px] text-[#484f6a]">
-        One highest-edge champion pick per league (Kalshi vs. sportsbook), priced at real book odds.
-        Model portfolio — legs resolve at different times, not a single-slip bet. Not financial advice.
+        One highest-edge champion pick per league (Kalshi vs. sportsbook), priced at the shorter of
+        DraftKings / FanDuel. Model portfolio — legs resolve at different times, not a single-slip bet.
+        Not financial advice.
       </p>
     </div>
   )

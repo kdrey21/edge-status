@@ -56,11 +56,18 @@ function americanToDecimal(price: number): number {
   return price > 0 ? price / 100 + 1 : 100 / Math.abs(price) + 1
 }
 
+/** Books the parlay prices against (the two largest US sportsbooks). */
+const PARLAY_BOOKS = new Set(['draftkings', 'fanduel'])
+
 /**
- * Fetch RAW consensus championship-futures odds (WITH the sportsbook vig),
- * as decimal odds, keyed by lowercase team name. This is what a parlay payout
- * must use — the de-vigged % from fetchSportsbookChampionshipOdds would inflate
- * the payout. Consensus = median decimal across all books for each team.
+ * Fetch RAW championship-futures odds (WITH the sportsbook vig) as decimal odds,
+ * keyed by lowercase team name — what a parlay payout must use (the de-vigged %
+ * from fetchSportsbookChampionshipOdds would inflate it).
+ *
+ * Prices each team at the **worse (shorter) of DraftKings / FanDuel** — the
+ * conservative side — so the shown payout is close to what a book would actually
+ * pay after its margin, not an optimistic best-line number. Falls back to the
+ * median across all books only if neither DK nor FanDuel lists the team.
  * Returns an empty Map on error.
  */
 export async function fetchSportsbookRawOdds(
@@ -80,27 +87,37 @@ export async function fetchSportsbookRawOdds(
     const data = (await res.json()) as OddsEvent[]
     if (!Array.isArray(data) || data.length === 0) return empty
 
-    // Collect each book's decimal odds per team.
-    const decimals = new Map<string, number[]>()
+    const preferred = new Map<string, number[]>() // DK / FanDuel only
+    const all = new Map<string, number[]>()        // every book (fallback)
     for (const event of data) {
       for (const book of event.bookmakers ?? []) {
         const market = book.markets.find(m => m.key === 'outrights')
         if (!market) continue
+        const isPreferred = PARLAY_BOOKS.has(book.key)
         for (const o of market.outcomes) {
           const name = o.name.trim().toLowerCase()
           if (!name) continue
-          if (!decimals.has(name)) decimals.set(name, [])
-          decimals.get(name)!.push(americanToDecimal(o.price))
+          const dec = americanToDecimal(o.price)
+          if (!all.has(name)) all.set(name, [])
+          all.get(name)!.push(dec)
+          if (isPreferred) {
+            if (!preferred.has(name)) preferred.set(name, [])
+            preferred.get(name)!.push(dec)
+          }
         }
       }
     }
 
     const result = new Map<string, number>()
-    for (const [name, vals] of decimals) {
-      vals.sort((a, b) => a - b)
-      const mid = Math.floor(vals.length / 2)
-      const median = vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2
-      result.set(name, median)
+    for (const [name, vals] of all) {
+      const pref = preferred.get(name)
+      if (pref && pref.length > 0) {
+        result.set(name, Math.min(...pref)) // worse (shorter) of DK/FanDuel
+      } else {
+        const s = [...vals].sort((a, b) => a - b)
+        const mid = Math.floor(s.length / 2)
+        result.set(name, s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2)
+      }
     }
     return result
   } catch (err) {
