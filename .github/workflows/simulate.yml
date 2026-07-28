@@ -12,9 +12,12 @@ jobs:
     name: Run Monte Carlo sim → Supabase
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Needed so the job can commit the auto-generated parlay image back to the repo.
+    # contents: write → commit the auto-generated parlay image back to the repo.
+    # actions:  write → trigger the deploy workflow so the new image gets served
+    #                   (a GITHUB_TOKEN commit does NOT auto-trigger workflows).
     permissions:
       contents: write
+      actions: write
 
     steps:
       - uses: actions/checkout@v4
@@ -45,4 +48,7 @@ jobs:
           else
             git commit -m "chore: archive parlay of the month image"
             git push
+            gh workflow run deploy-pages.yml
           fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
