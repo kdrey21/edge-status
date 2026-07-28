@@ -326,7 +326,19 @@ precision, and must NOT be read as confidence that the model beats the market.
 
 ---
 
-### Backlog 2 — Quarterly cross-league championship parlay
+### Backlog 2 — Cross-league championship parlay (IMPLEMENTED as "Parlay of the Month")
+**Shipped monthly, not quarterly** (avoids a frozen parlay outliving a title). Files:
+`src/lib/parlay.ts` (selection/odds math), `runCfbLeague`'s sibling `generateParlayOfMonth`
+in `scripts/simulate.ts`, `src/lib/parlayImage.ts` (auto-PNG), `ParlayOfMonth.tsx` (home
+card), `parlay_of_month` table. Selection: per league, top-10 by championship odds → max
+edge (Kalshi − book). Priced at the worse of DraftKings/FanDuel (raw odds). Skips
+Feb/June/Nov. Each month auto-archived as a timestamped PNG in `public/parlay-archive/`
+and served for sharing. Original spec below kept for the realism-filter research.
+
+**Possible follow-ups:** DraftKings/FanDuel betslip deep-links (via The Odds API
+`includeLinks=true` — needs testing for futures markets); premium gating; social-card
+polish.
+
 **Goal:** A curated 4-leg "title parlay" — one champion pick per major league
 (NBA, NHL, MLB, NFL) — that balances market edge with realism. Intended as a shareable
 social card and/or a premium feature to drive traction.
@@ -423,7 +435,11 @@ ESPN-abbr→ESPN-id (CFB logos are keyed by numeric id, not abbr).
 
 ---
 
-### Backlog 3 — Futures-mode team page (hide empty sim fields)
+### Backlog 3 — Futures-mode team page (IMPLEMENTED)
+Done via `const isFutures = result.playoff_pct == null` in `TeamPageClient.tsx`: hides the
+sim stat grid, division table, and schedule; keeps the market cards + trend chart (which
+now plots Kalshi/Book series). Original spec kept below for reference.
+
 **Problem:** When a league is in off-season/**Futures** mode (NBA/NHL/NFL between
 seasons), a team's market-only Supabase row has all sim columns null
 (`playoff_pct`, `div_title_pct`, `conf_title_pct`, `championship_pct`,
@@ -469,6 +485,44 @@ in-season layout exactly as-is.
 **Note:** the sim already stops writing sim columns off-season (`marketNameMap`
 market-only path + the league-wide sim-column clear in `scripts/simulate.ts`), so
 no schema/sim work is needed — this is a pure team-page UI/UX gating task.
+
+---
+
+### Backlog 5 — Path to iOS / App Store readiness (future, on hold)
+**Deferred on purpose** (regulation/liability around betting content). Nothing to
+build now — this captures what a commercial App Store product would require so the
+option stays open. NOT legal advice; get a real compliance/legal review before
+submitting anything.
+
+**Already portable (good news):** the client data boundary is clean. All app-facing
+data is in Supabase (`sim_results`, `sim_snapshots`, `parlay_of_month`), read via
+anon REST. A native iOS client (SwiftUI / React Native) would read the same tables —
+no re-plumbing. All upstream ingestion (ESPN, odds, Kalshi) is server-side in the
+daily job and never touches the client.
+
+**Blockers to resolve before productizing (upstream data), by risk:**
+1. **ESPN API — biggest.** Standings, schedules, scores, **FPI**, and **team logos**
+   (`espncdn.com`) all use undocumented, unlicensed internal endpoints. Fine for a
+   free hobby site; not licensable for a commercial product. Swap to a licensed feed
+   (SportsDataIO / Sportradar / Stats Perform). Contained: all ESPN calls live in
+   `src/lib/espn.ts` + the sim script, so it's a source swap, not a rewrite.
+2. **Team logos & league trademarks.** Logos and marks (NFL/NBA/MLB/NHL/NCAA, "Super
+   Bowl") are trademarked; logos in a monetized app are IP-exposed. License, drop, or
+   use generic marks. Descriptive use of names is more defensible (nominative fair use).
+3. **Kalshi.** CFTC-regulated exchange — check their market-data API terms for
+   commercial redistribution rights.
+4. **Clean already:** The Odds API (commercial, paid plans), Supabase, Web3Forms.
+
+**App Store guidelines that shape this:**
+- **5.3 (gambling/betting):** odds/edges and especially **Parlay of the Month** read as
+  betting-adjacent → expect 17+ rating, geo-awareness, and no facilitation of illegal
+  betting. A DraftKings **betslip deep-link** pushes it toward "facilitating gambling"
+  and raises scrutiny.
+- **4.2 (minimum functionality):** a thin WebView wrapper usually gets rejected → build
+  a genuine native client reading Supabase.
+
+**Bottom line:** two must-dos when productizing — replace ESPN with a licensed feed,
+and resolve logos/trademarks — plus a compliance/legal review on the betting angle.
 
 ---
 
