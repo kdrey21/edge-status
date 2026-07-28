@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import type { SimResult } from '@/types'
+import { parlayMonthKey, type ParlayOfMonth } from '@/lib/parlay'
 
 // Uses NEXT_PUBLIC_ vars so this client is safe to call from the browser.
 // These are baked into the JS bundle at build time by Next.js.
@@ -8,6 +9,26 @@ function getAnonClient() {
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (!url || !key) throw new Error('Supabase public env vars not set')
   return createClient(url, key)
+}
+
+/**
+ * The current month's Parlay of the Month, or null if this is a skip month
+ * (Feb/June/Nov — a championship is being decided) or it hasn't generated yet.
+ */
+export async function getParlayOfMonth(): Promise<ParlayOfMonth | null> {
+  const monthKey = parlayMonthKey()
+  if (!monthKey) return null
+  try {
+    const { data, error } = await getAnonClient()
+      .from('parlay_of_month')
+      .select('*')
+      .eq('month_key', monthKey)
+      .maybeSingle()
+    if (error || !data) return null
+    return data as ParlayOfMonth
+  } catch {
+    return null
+  }
 }
 
 export async function getLeagueResults(league: string): Promise<SimResult[]> {

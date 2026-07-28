@@ -18,7 +18,11 @@ import { LEAGUES, type Game, type LeagueTeam, type LeagueConfig } from '@/types'
 import { fetchStandings, fetchUpcomingGames, fetchCompletedGames, isLeagueActive, fetchPlayoffState, fetchSeasonPhase, fetchCfbSeason } from '@/lib/espn'
 import { simulateCfb, ratingNoiseForProgress } from '@/lib/cfbSimulation'
 import { runSimulation, buildH2HMatrix, type TrackedGameInput } from '@/lib/simulation'
-import { fetchSportsbookChampionshipOdds } from '@/lib/odds'
+import { fetchSportsbookChampionshipOdds, fetchSportsbookRawOdds } from '@/lib/odds'
+import {
+  PARLAY_LEAGUES, PARLAY_TOP_N, parlayMonthKey, decimalToAmerican, combineParlay,
+  formatAmerican, type ParlayLeg,
+} from '@/lib/parlay'
 import { fetchKalshiChampionshipOdds } from '@/lib/kalshi'
 
 // Validate required secrets before doing any work
@@ -224,6 +228,65 @@ async function main() {
       `title favs: ${topChamp.map(t => `${t.abbr} ${t.championshipPct.toFixed(1)}%`).join(', ')}`,
     )
     results.push({ league: league.slug, teams: rows.length, status: 'cfb-sim' })
+  }
+
+  // Parlay of the Month: one champion pick per major league (highest edge in the
+  // top-10 by championship odds), priced with real book odds. Generated once per
+  // month and locked; skipped Feb/June/Nov (a title is being decided). Reads the
+  // sim_results just written above.
+  async function generateParlayOfMonth(): Promise<void> {
+    const monthKey = parlayMonthKey()
+    if (!monthKey) { console.log('  [PARLAY] Championship month — no parlay posted.'); return }
+    if (!hasOddsKey) { console.log('  [PARLAY] No Odds API key — cannot price parlay.'); return }
+
+    const { data: existing } = await db
+      .from('parlay_of_month').select('month_key').eq('month_key', monthKey).maybeSingle()
+    if (existing) { console.log(`  [PARLAY] ${monthKey} already generated — locked.`); return }
+
+    const legs: ParlayLeg[] = []
+    for (const slug of PARLAY_LEAGUES) {
+      const cfg = LEAGUES.find(l => l.slug === slug)
+      if (!cfg?.oddsApiSport || !cfg.marketNameMap) { console.warn(`  [PARLAY] ${slug}: no market config — abort.`); return }
+
+      // Top-N by championship odds, then the biggest edge (kalshi − book).
+      const { data: rows } = await db.from('sim_results')
+        .select('team, kalshi_champ_pct, sportsbook_champ_pct, champ_ev_pct')
+        .eq('league', slug)
+        .not('kalshi_champ_pct', 'is', null)
+        .order('kalshi_champ_pct', { ascending: false })
+        .limit(PARLAY_TOP_N)
+      const pool = (rows ?? []).filter(r => r.sportsbook_champ_pct != null && r.champ_ev_pct != null)
+      if (pool.length === 0) { console.warn(`  [PARLAY] ${slug}: no priced candidates — abort.`); return }
+      const pick = pool.reduce((best, r) => (r.champ_ev_pct! > best.champ_ev_pct! ? r : best))
+
+      // Real book odds (with vig) for the payout.
+      const raw = await fetchSportsbookRawOdds(cfg.oddsApiSport, ODDS_API_KEY!)
+      const keys = Object.entries(cfg.marketNameMap).filter(([, v]) => v === pick.team).map(([k]) => k)
+      const decimal = matchMarketPct(keys, raw)
+      if (decimal == null) { console.warn(`  [PARLAY] ${slug}: no book odds for ${pick.team} — abort.`); return }
+
+      legs.push({
+        league: slug,
+        team: pick.team,
+        kalshi_pct: pick.kalshi_champ_pct!,
+        book_pct: pick.sportsbook_champ_pct!,
+        edge_pct: pick.champ_ev_pct!,
+        decimal_odds: decimal,
+        american_odds: decimalToAmerican(decimal),
+      })
+    }
+
+    const combined = combineParlay(legs)
+    const { error } = await db.from('parlay_of_month').upsert(
+      { month_key: monthKey, generated_at: new Date().toISOString(), legs, ...combined },
+      { onConflict: 'month_key' },
+    )
+    if (error) { console.warn(`  [PARLAY] write failed (table missing?): ${error.message}`); return }
+    console.log(
+      `  [PARLAY] ✓ ${monthKey}: ` +
+      legs.map(l => `${l.league.toUpperCase()} ${l.team} ${formatAmerican(l.american_odds)}`).join(' + ') +
+      ` → ${combined.combined_decimal.toFixed(1)}× ($100 → $${combined.payout_per_100.toFixed(0)})`,
+    )
   }
 
   await Promise.all(
@@ -650,6 +713,12 @@ async function main() {
       }
     }),
   )
+
+  try {
+    await generateParlayOfMonth()
+  } catch (e) {
+    console.warn(`  [PARLAY] generation error: ${e}`)
+  }
 
   console.log('\n📊 Results summary:')
   console.log(JSON.stringify({ ok: true, results }, null, 2))

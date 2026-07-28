@@ -52,6 +52,63 @@ function americanToImplied(price: number): number {
   return Math.abs(price) / (Math.abs(price) + 100)
 }
 
+function americanToDecimal(price: number): number {
+  return price > 0 ? price / 100 + 1 : 100 / Math.abs(price) + 1
+}
+
+/**
+ * Fetch RAW consensus championship-futures odds (WITH the sportsbook vig),
+ * as decimal odds, keyed by lowercase team name. This is what a parlay payout
+ * must use — the de-vigged % from fetchSportsbookChampionshipOdds would inflate
+ * the payout. Consensus = median decimal across all books for each team.
+ * Returns an empty Map on error.
+ */
+export async function fetchSportsbookRawOdds(
+  sportKey: string,
+  apiKey: string,
+): Promise<Map<string, number>> {
+  const empty = new Map<string, number>()
+  try {
+    const url =
+      `${ODDS_API_BASE}/sports/${sportKey}/odds/` +
+      `?apiKey=${apiKey}&regions=us&markets=outrights&oddsFormat=american`
+    const res = await fetch(url, { headers: { Accept: 'application/json' } })
+    if (!res.ok) {
+      console.warn(`  [Odds API raw] HTTP ${res.status} for ${sportKey}`)
+      return empty
+    }
+    const data = (await res.json()) as OddsEvent[]
+    if (!Array.isArray(data) || data.length === 0) return empty
+
+    // Collect each book's decimal odds per team.
+    const decimals = new Map<string, number[]>()
+    for (const event of data) {
+      for (const book of event.bookmakers ?? []) {
+        const market = book.markets.find(m => m.key === 'outrights')
+        if (!market) continue
+        for (const o of market.outcomes) {
+          const name = o.name.trim().toLowerCase()
+          if (!name) continue
+          if (!decimals.has(name)) decimals.set(name, [])
+          decimals.get(name)!.push(americanToDecimal(o.price))
+        }
+      }
+    }
+
+    const result = new Map<string, number>()
+    for (const [name, vals] of decimals) {
+      vals.sort((a, b) => a - b)
+      const mid = Math.floor(vals.length / 2)
+      const median = vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2
+      result.set(name, median)
+    }
+    return result
+  } catch (err) {
+    console.warn(`  [Odds API raw] Error fetching ${sportKey}: ${err}`)
+    return empty
+  }
+}
+
 /**
  * Fetch and de-vig championship futures from The Odds API.
  * @param sportKey   e.g. 'basketball_nba_championship_winner'

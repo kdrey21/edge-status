@@ -196,7 +196,25 @@ alter table sim_results enable row level security;
 create policy "Public read" on sim_results for select using (true);
 alter table sim_snapshots enable row level security;
 create policy "Public read" on sim_snapshots for select using (true);
+
+-- Parlay of the Month (cross-league championship parlay). One locked row/month.
+create table parlay_of_month (
+  month_key            text primary key,   -- 'YYYY-MM'
+  generated_at         timestamptz not null default now(),
+  legs                 jsonb not null,     -- [{league,team,kalshi_pct,book_pct,edge_pct,decimal_odds,american_odds}]
+  combined_decimal     numeric not null,
+  combined_american    int not null,
+  combined_implied_pct numeric not null,
+  payout_per_100       numeric not null
+);
+alter table parlay_of_month enable row level security;
+create policy "Public read" on parlay_of_month for select using (true);
 ```
+
+**⚠ Manual step:** run the `parlay_of_month` block above in the Supabase SQL
+editor before the parlay feature works — the sim writes to it (service role) and
+the site reads it (anon). Until the table exists, the sim logs a warning and the
+home-page card stays hidden.
 
 ---
 

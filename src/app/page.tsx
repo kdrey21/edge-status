@@ -3,8 +3,10 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { LEAGUES } from '@/types'
-import { getAllLeaguesSummary, getTopEdges, type TopEdge } from '@/lib/supabase'
+import { getAllLeaguesSummary, getTopEdges, getParlayOfMonth, type TopEdge } from '@/lib/supabase'
 import LeagueCard from '@/components/LeagueCard'
+import ParlayOfMonth from '@/components/ParlayOfMonth'
+import type { ParlayOfMonth as Parlay } from '@/lib/parlay'
 import { espnLogoUrl } from '@/lib/logos'
 
 const LEAGUE_NAMES: Record<string, string> = {
@@ -72,6 +74,7 @@ export default function HomePage() {
   >([])
   const [edges, setEdges] = useState<TopEdge[]>([])
   const [edgesLoading, setEdgesLoading] = useState(true)
+  const [parlay, setParlay] = useState<Parlay | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -84,6 +87,7 @@ export default function HomePage() {
       })
       .catch(() => {})
       .finally(() => setEdgesLoading(false))
+    getParlayOfMonth().then(setParlay).catch(() => {})
   }, [])
 
   const summaryMap = new Map(summary.map(s => [s.league, s]))
@@ -144,6 +148,9 @@ export default function HomePage() {
           </p>
         </div>
       </div>
+
+      {/* Parlay of the Month — skinny banner under the market edges */}
+      {parlay && <ParlayOfMonth parlay={parlay} />}
 
       {/* League grid */}
       <h2 className="font-display text-[10px] font-bold uppercase tracking-widest text-[#484f6a] mb-4">
