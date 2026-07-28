@@ -21,8 +21,14 @@ import { runSimulation, buildH2HMatrix, type TrackedGameInput } from '@/lib/simu
 import { fetchSportsbookChampionshipOdds, fetchSportsbookRawOdds } from '@/lib/odds'
 import {
   PARLAY_LEAGUES, PARLAY_TOP_N, parlayMonthKey, decimalToAmerican, combineParlay,
-  formatAmerican, type ParlayLeg,
+  formatAmerican, type ParlayLeg, type ParlayOfMonth,
 } from '@/lib/parlay'
+import { buildParlayPng } from '@/lib/parlayImage'
+import { writeFileSync, existsSync, mkdirSync } from 'fs'
+
+// Under public/ so the PNGs are both committed to the repo AND served at
+// /edge-status/parlay-archive/<month>.png for direct sharing.
+const PARLAY_ARCHIVE_DIR = 'public/parlay-archive'
 import { fetchKalshiChampionshipOdds } from '@/lib/kalshi'
 
 // Validate required secrets before doing any work
@@ -240,8 +246,12 @@ async function main() {
     if (!hasOddsKey) { console.log('  [PARLAY] No Odds API key — cannot price parlay.'); return }
 
     const { data: existing } = await db
-      .from('parlay_of_month').select('month_key').eq('month_key', monthKey).maybeSingle()
-    if (existing) { console.log(`  [PARLAY] ${monthKey} already generated — locked.`); return }
+      .from('parlay_of_month').select('*').eq('month_key', monthKey).maybeSingle()
+    if (existing) {
+      await writeParlayImage(existing as ParlayOfMonth) // self-heal the PNG if missing
+      console.log(`  [PARLAY] ${monthKey} already generated — locked.`)
+      return
+    }
 
     const legs: ParlayLeg[] = []
     for (const slug of PARLAY_LEAGUES) {
@@ -277,16 +287,31 @@ async function main() {
     }
 
     const combined = combineParlay(legs)
-    const { error } = await db.from('parlay_of_month').upsert(
-      { month_key: monthKey, generated_at: new Date().toISOString(), legs, ...combined },
-      { onConflict: 'month_key' },
-    )
+    const row: ParlayOfMonth = { month_key: monthKey, generated_at: new Date().toISOString(), legs, ...combined }
+    const { error } = await db.from('parlay_of_month').upsert(row, { onConflict: 'month_key' })
     if (error) { console.warn(`  [PARLAY] write failed (table missing?): ${error.message}`); return }
     console.log(
       `  [PARLAY] ✓ ${monthKey}: ` +
       legs.map(l => `${l.league.toUpperCase()} ${l.team} ${formatAmerican(l.american_odds)}`).join(' + ') +
       ` → ${combined.combined_decimal.toFixed(1)}× ($100 → $${combined.payout_per_100.toFixed(0)})`,
     )
+    await writeParlayImage(row)
+  }
+
+  // Auto-save the card as a timestamped PNG in parlay-archive/ (committed by the
+  // workflow). Idempotent — only writes if the file is missing, so it also
+  // self-heals a month whose image failed to generate earlier.
+  async function writeParlayImage(parlay: ParlayOfMonth): Promise<void> {
+    const path = `${PARLAY_ARCHIVE_DIR}/${parlay.month_key}.png`
+    if (existsSync(path)) return
+    try {
+      const png = await buildParlayPng(parlay)
+      mkdirSync(PARLAY_ARCHIVE_DIR, { recursive: true })
+      writeFileSync(path, png)
+      console.log(`  [PARLAY] 🖼  saved ${path} (${png.length} bytes)`)
+    } catch (e) {
+      console.warn(`  [PARLAY] image render failed: ${e}`)
+    }
   }
 
   await Promise.all(

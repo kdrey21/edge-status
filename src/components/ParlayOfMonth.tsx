@@ -1,6 +1,5 @@
 'use client'
 
-import { useRef, useState } from 'react'
 import Link from 'next/link'
 import { espnLogoUrl } from '@/lib/logos'
 import { formatAmerican, parlayMonthLabel, type ParlayOfMonth as Parlay } from '@/lib/parlay'
@@ -11,41 +10,14 @@ const LEAGUE_LABEL: Record<string, string> = {
 
 export default function ParlayOfMonth({ parlay }: { parlay: Parlay }) {
   const payout = Math.round(parlay.payout_per_100)
-  const cardRef = useRef<HTMLDivElement>(null)
-  const [saving, setSaving] = useState(false)
 
-  // Exact pick date, captured on the banner for the timestamped share image.
+  // Exact date the parlay was locked (also stamped on the auto-saved PNG).
   const lockedDate = new Date(parlay.generated_at).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
   })
 
-  async function saveImage() {
-    if (!cardRef.current) return
-    setSaving(true)
-    try {
-      const { toPng } = await import('html-to-image')
-      const url = await toPng(cardRef.current, {
-        cacheBust: true,
-        pixelRatio: 2,
-        backgroundColor: '#0a0b0f',
-        filter: (node) => !(node instanceof HTMLElement && node.dataset.noexport != null),
-      })
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `parlay-${parlay.month_key}.png`
-      a.click()
-    } catch {
-      /* best-effort; card stays on screen */
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
-    <div
-      ref={cardRef}
-      className="rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/[0.08] via-surface-card to-surface-card shadow-card mb-10 overflow-hidden"
-    >
+    <div className="rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/[0.08] via-surface-card to-surface-card shadow-card mb-10 overflow-hidden">
       <div className="flex flex-col lg:flex-row lg:items-center gap-4 px-4 py-3">
         {/* Label */}
         <div className="shrink-0 lg:w-44">
@@ -96,14 +68,6 @@ export default function ParlayOfMonth({ parlay }: { parlay: Parlay }) {
           <p className="text-[10px] text-[#484f6a]">
             {formatAmerican(parlay.combined_american)} · {parlay.combined_implied_pct.toFixed(2)}% implied
           </p>
-          <button
-            data-noexport
-            onClick={saveImage}
-            disabled={saving}
-            className="mt-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-400/80 hover:text-amber-400 transition-colors disabled:opacity-50"
-          >
-            {saving ? 'Saving…' : '⤓ Save image'}
-          </button>
         </div>
       </div>
 
