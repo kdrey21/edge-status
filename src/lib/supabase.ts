@@ -102,6 +102,46 @@ export async function getLeagueImportantGames(
 }
 
 // ---------------------------------------------------------------------------
+// Upcoming schedule (served from Supabase — the browser-side ESPN fetch fails
+// on CORS, so the daily sim job writes each team's next games + win prob here)
+// ---------------------------------------------------------------------------
+
+export interface UpcomingGame {
+  league: string
+  game_date: string
+  home_team: string
+  away_team: string
+  home_win_prob: number
+}
+
+/**
+ * Fetch a single team's upcoming games (home or away), from today forward,
+ * sorted soonest-first. Empty array when the sim hasn't populated the table
+ * (e.g. off-season, or the table doesn't exist yet).
+ */
+export async function getTeamUpcomingGames(
+  league: string,
+  team: string,
+  limit = 10,
+): Promise<UpcomingGame[]> {
+  try {
+    const today = new Date().toISOString().slice(0, 10)
+    const { data, error } = await getAnonClient()
+      .from('upcoming_games')
+      .select('league, game_date, home_team, away_team, home_win_prob')
+      .eq('league', league)
+      .gte('game_date', today)
+      .or(`home_team.eq.${team},away_team.eq.${team}`)
+      .order('game_date', { ascending: true })
+      .limit(limit)
+    if (error || !data) return []
+    return data as UpcomingGame[]
+  } catch {
+    return []
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Snapshot history (Phase 4)
 // ---------------------------------------------------------------------------
 

@@ -17,7 +17,7 @@ import { createClient } from '@supabase/supabase-js'
 import { LEAGUES, type Game, type LeagueTeam, type LeagueConfig } from '@/types'
 import { fetchStandings, fetchUpcomingGames, fetchCompletedGames, isLeagueActive, fetchPlayoffState, fetchSeasonPhase, fetchCfbSeason } from '@/lib/espn'
 import { simulateCfb, ratingNoiseForProgress } from '@/lib/cfbSimulation'
-import { runSimulation, buildH2HMatrix, type TrackedGameInput } from '@/lib/simulation'
+import { runSimulation, buildH2HMatrix, homeGameWinProb, type TrackedGameInput } from '@/lib/simulation'
 import { fetchSportsbookChampionshipOdds, fetchSportsbookRawOdds } from '@/lib/odds'
 import {
   PARLAY_LEAGUES, PARLAY_TOP_N, parlayMonthKey, decimalToAmerican, combineParlay,
@@ -714,6 +714,39 @@ async function main() {
             .upsert(importanceRows, { onConflict: 'league,game_date,home_team,away_team' })
           if (impErr) console.warn(`  [${league.slug.toUpperCase()}] Game importance write failed: ${impErr.message}`)
           else console.log(`  [${league.slug.toUpperCase()}] ✓ ${importanceRows.length} game importance rows upserted`)
+        }
+
+        // Upsert the FULL upcoming schedule (all tracked games, not just the
+        // pivotal ones) so the team page can render each team's next games with
+        // a real win probability — served from Supabase instead of a browser-side
+        // ESPN fetch that fails on CORS. Win prob uses the same sport-specific
+        // Elo + home-advantage model the Monte Carlo runs on.
+        const eloById = new Map(teams.map(t => [t.id, t.elo]))
+        const scheduleRows = trackedGames.map(g => ({
+          league: league.slug,
+          game_date: g.date,
+          home_team: g.homeTeamAbbr,
+          away_team: g.awayTeamAbbr,
+          home_win_prob: Math.round(
+            homeGameWinProb(
+              eloById.get(g.homeTeamId) ?? 1500,
+              eloById.get(g.awayTeamId) ?? 1500,
+              league.sport,
+            ) * 1000,
+          ) / 1000,
+          updated_at: new Date().toISOString(),
+        }))
+        // Replace the league's schedule wholesale each run so stale/played games
+        // drop out (delete-then-insert; the daily job is the only writer).
+        const { error: schedDelErr } = await db
+          .from('upcoming_games')
+          .delete()
+          .eq('league', league.slug)
+        if (schedDelErr) console.warn(`  [${league.slug.toUpperCase()}] Schedule clear failed: ${schedDelErr.message}`)
+        if (scheduleRows.length > 0) {
+          const { error: schedErr } = await db.from('upcoming_games').insert(scheduleRows)
+          if (schedErr) console.warn(`  [${league.slug.toUpperCase()}] Schedule write failed: ${schedErr.message}`)
+          else console.log(`  [${league.slug.toUpperCase()}] ✓ ${scheduleRows.length} upcoming games upserted`)
         }
 
         // Drop stale alias rows (e.g. relocated-team abbr changes) so a team

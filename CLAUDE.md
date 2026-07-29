@@ -209,12 +209,34 @@ create table parlay_of_month (
 );
 alter table parlay_of_month enable row level security;
 create policy "Public read" on parlay_of_month for select using (true);
+
+-- Upcoming schedule (Phase 5). The daily sim writes each league's upcoming games
+-- with a sport-specific Elo win probability; the team page reads them from here
+-- (the old browser-side ESPN fetch failed silently on CORS). Replaced wholesale
+-- each run (delete-then-insert per league).
+create table upcoming_games (
+  league        text not null,
+  game_date     date not null,
+  home_team     text not null,
+  away_team     text not null,
+  home_win_prob numeric not null,   -- P(home team wins), 0–1
+  updated_at    timestamptz default now(),
+  primary key (league, game_date, home_team, away_team)
+);
+alter table upcoming_games enable row level security;
+create policy "Public read" on upcoming_games for select using (true);
 ```
 
 **⚠ Manual step:** run the `parlay_of_month` block above in the Supabase SQL
 editor before the parlay feature works — the sim writes to it (service role) and
 the site reads it (anon). Until the table exists, the sim logs a warning and the
 home-page card stays hidden.
+
+**⚠ Manual step (Phase 5):** run the `upcoming_games` block above in the Supabase
+SQL editor before the team-page schedule works. The sim deletes+inserts each
+league's schedule per run; the team page reads it (anon). Until the table exists,
+the sim logs a warning and the "Upcoming Schedule" section falls back to tracked
+important games (no win probability).
 
 ---
 
@@ -264,28 +286,35 @@ GitHub Pages must be enabled: repo Settings → Pages → Source: **GitHub Actio
 - All 6 GitHub secrets set individually (no combined secret file)
 
 ### Known Issues / TODO
-1. **H2H tiebreaker** — primary tiebreaker (MLB/NFL/NBA) not yet implemented; using div/conf record as proxy
+1. **H2H tiebreaker** — primary tiebreaker (MLB/NFL/NBA) not yet implemented; using div/conf record as proxy. The team page now shows a GB-based nearest-rival line ("0.5 GB behind BOS · TOR 1.0 GB back") as a stand-in until game logs are fetched.
 2. **MLS game importance** — weekly schedule means 14-day window sometimes missed matchdays; expanded to 21 days
-3. **Team position description** — natural language summary of a team's current playoff situation
-4. **Team page "Upcoming Schedule" blank** — ESPN direct browser fetch fails silently (likely CORS). Fix: store upcoming schedule in Supabase during sim run (already have game data), then fetch from there. Or hide section until Phase 5 redesign.
+3. **Team position description** — natural language summary of a team's current playoff situation (implemented: `generatePositionSummary` in TeamPageClient)
+4. ~~**Team page "Upcoming Schedule" blank**~~ — FIXED (Phase 5). The daily sim writes each league's schedule + win prob to the `upcoming_games` table; the team page reads it from Supabase instead of the CORS-blocked browser ESPN fetch.
+
+---
+
+## Phase 5 — Team fan UI (IMPLEMENTED)
+
+Done. All items shipped:
+- **Team history line chart** — `TrendChart` (Recharts) plots playoff% / sim-champ% /
+  Kalshi% / book% over 30 days; wired on every team page from `sim_snapshots`.
+- **Mobile UX pass** — `StatCard` descriptions moved from always-visible inline text to a
+  tap-to-reveal "i" info toggle (touch-friendly; hover tooltips don't work on mobile).
+- **Tiebreaker / nearest-rival context** — GB-based "chasing / holding off" line in the
+  division standings header (proxy for true H2H — see Known Issues #1).
+- **Upcoming Schedule fix** — served from the new `upcoming_games` Supabase table (see
+  schema + manual step above), replacing the browser-side ESPN fetch that failed on CORS.
+  Win prob uses the same sport-specific Elo model as the Monte Carlo (`homeGameWinProb`).
+- **Design polish** — tighter card hierarchy; division header now carries the rival line.
+
+Remaining polish ideas (optional, not blocking): true H2H tiebreaker from game logs;
+NCAAF weekly schedule storage (the CFP sim league currently hides the schedule section).
 
 ---
 
 ## Upcoming Work (in priority order)
 
-1. **Phase 5 — Team fan UI** — DO THIS LAST, after data is correct:
-   - **Team history line chart** — Recharts multi-line chart on team page showing playoff_pct +
-     championship_pct trend over last 14 days (data available in sim_snapshots, just needs
-     a client-side filter-by-team + LineChart component using existing Recharts dependency)
-   - Tiebreaker context when teams are close ("PHI leads ATL in H2H 4-2")
-   - **Mobile UX pass** — stat card descriptions are currently always-visible inline text
-     (replaced hover tooltips which don't work on touch). Phase 5 should redesign the card
-     layout for mobile: consider collapsible info rows, bottom sheets, or a purpose-built
-     mobile card component that doesn't need the description text to be always visible.
-   - Design refresh (better hierarchy, mobile layout)
-   - Fix blank "Upcoming Schedule" section on team page (ESPN direct browser fetch fails;
-     solution is to write upcoming schedule to Supabase during sim run, read it same as other data)
-   - All new data features need to be designed into the layout, not bolted on
+1. **Backlog 1 — Model confidence indicator** (next up — see Feature Backlog below).
 
 ---
 

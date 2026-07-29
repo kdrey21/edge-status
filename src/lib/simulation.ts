@@ -59,6 +59,16 @@ function winProb(eloA: number, eloB: number): number {
   return 1 / (1 + Math.pow(10, -(eloA - eloB) / ELO_SCALE))
 }
 
+/**
+ * Home team's win probability for a single game, using the same sport-specific
+ * Elo + home-advantage model the Monte Carlo runs on. Exported so the sim job
+ * can store consistent per-game win probs for the team-page schedule.
+ */
+export function homeGameWinProb(homeElo: number, awayElo: number, sport: string): number {
+  const adv = HOME_ELO_ADV_BY_SPORT[sport] ?? DEFAULT_HOME_ELO_ADV
+  return winProb(homeElo + adv, awayElo)
+}
+
 function choose(n: number, k: number): number {
   if (k > n || k < 0) return 0
   if (k === 0 || k === n) return 1

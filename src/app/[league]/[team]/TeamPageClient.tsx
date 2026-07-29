@@ -5,9 +5,8 @@ import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { getLeague, type SimResult, type LeagueConfig } from '@/types'
 import { espnLogoUrl } from '@/lib/logos'
-import { getTeamResult, getLeagueResults, getLeagueImportantGames, getTeamSnapshots, type ImportantGame, type SnapPoint } from '@/lib/supabase'
+import { getTeamResult, getLeagueResults, getLeagueImportantGames, getTeamSnapshots, getTeamUpcomingGames, type ImportantGame, type SnapPoint } from '@/lib/supabase'
 import ScheduleTable from '@/components/ScheduleTable'
-import type { Game, LeagueTeam } from '@/types'
 
 // Recharts components load client-side only
 const SeedChart = dynamic(() => import('@/components/SeedChart'), { ssr: false })
@@ -23,19 +22,44 @@ function StatCard({
   value,
   color,
   sub,
+  tooltip,
 }: {
   label: string
   value: string
   color: string
   sub?: string
-  /** tooltip kept for compat but not rendered — see Phase 5 mobile UX backlog */
+  /** Explainer shown via a tap-to-reveal info toggle (touch-friendly; hover
+   *  tooltips don't work on mobile — see Phase 5 mobile UX). */
   tooltip?: string
 }) {
+  const [showInfo, setShowInfo] = useState(false)
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-card shadow-card p-5">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a] mb-2">{label}</p>
+    <div className="relative rounded-xl border border-surface-border bg-surface-card shadow-card p-5">
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a]">{label}</p>
+        {tooltip && (
+          <button
+            type="button"
+            aria-label={`What is ${label}?`}
+            aria-expanded={showInfo}
+            onClick={() => setShowInfo(v => !v)}
+            className={`shrink-0 -mt-0.5 -mr-1 flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold transition-colors ${
+              showInfo
+                ? 'border-brand/60 bg-brand/15 text-brand'
+                : 'border-surface-border text-[#484f6a] hover:text-[#8892aa] hover:border-[#484f6a]'
+            }`}
+          >
+            i
+          </button>
+        )}
+      </div>
       <p className={`font-display text-3xl font-bold ${color}`}>{value}</p>
       {sub && <p className="text-[11px] text-[#484f6a] mt-1.5">{sub}</p>}
+      {tooltip && showInfo && (
+        <p className="text-[11px] text-[#8892aa] leading-relaxed mt-3 pt-3 border-t border-surface-border">
+          {tooltip}
+        </p>
+      )}
     </div>
   )
 }
@@ -172,10 +196,14 @@ export default function TeamPageClient({ league, team }: Props) {
   const [scheduleGames, setScheduleGames] = useState<ScheduleGame[]>([])
   const [scheduleLoading, setScheduleLoading] = useState(true)
 
-  // Fetch sim data (this team + all league results for context) + important games
+  // Fetch everything from Supabase in one pass: this team's row, all league rows
+  // (for context), important games, snapshot history, and the upcoming schedule.
+  // The schedule now comes from Supabase (written by the daily sim) rather than a
+  // browser-side ESPN fetch, which failed silently on CORS.
   useEffect(() => {
     if (!config) {
       setSimLoading(false)
+      setScheduleLoading(false)
       return
     }
     Promise.all([
@@ -183,71 +211,31 @@ export default function TeamPageClient({ league, team }: Props) {
       getLeagueResults(league),
       getLeagueImportantGames(league, teamAbbr, 10),
       getTeamSnapshots(league, teamAbbr, 30),
+      getTeamUpcomingGames(league, teamAbbr, 10),
     ])
-      .then(([res, all, imp, snaps]) => {
+      .then(([res, all, imp, snaps, upcoming]) => {
         setResult(res)
         setAllResults(all)
         setImportantGames(imp)
         setSnapshots(snaps)
+        // Map to the team's own perspective (win prob flips when they're away).
+        setScheduleGames(
+          upcoming.map(g => {
+            const isHome = g.home_team === teamAbbr
+            return {
+              date: g.game_date,
+              opponent: isHome ? g.away_team : g.home_team,
+              isHome,
+              winProb: isHome ? g.home_win_prob : 1 - g.home_win_prob,
+            }
+          }),
+        )
       })
       .catch(() => {})
-      .finally(() => setSimLoading(false))
-  }, [league, teamAbbr]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Fetch upcoming schedule from ESPN (best-effort; graceful CORS fallback).
-  // Skip for futures-only leagues (e.g. NCAAF) — no in-season schedule, and the
-  // college-football standings fetch is heavy. The schedule section is hidden in
-  // futures mode anyway.
-  useEffect(() => {
-    if (!config || config.futuresOnly || config.cfbSim) {
-      setScheduleLoading(false)
-      return
-    }
-
-    async function loadSchedule() {
-      const { fetchUpcomingGames, fetchStandings } = await import('@/lib/espn')
-      const [espnGames, standings] = await Promise.all([
-        fetchUpcomingGames(config!.espnPath),
-        fetchStandings(config!.espnPath, config!.totalGames, config!.coreLeague, config!.coreSeasonType),
-      ])
-
-      const thisTeam = standings.find(
-        (t: LeagueTeam) => t.abbreviation.toUpperCase() === teamAbbr,
-      )
-      const eloMap = new Map(
-        standings.map((t: LeagueTeam) => [t.id, { abbr: t.abbreviation, elo: t.elo }]),
-      )
-
-      if (!thisTeam) return
-
-      const HOME_ELO_ADV = 65
-      const ELO_SCALE = 400
-
-      const games: ScheduleGame[] = (espnGames as Game[])
-        .filter(g => !g.completed)
-        .filter(g => g.homeTeamId === thisTeam.id || g.awayTeamId === thisTeam.id)
-        .slice(0, 20)
-        .map(g => {
-          const isHome = g.homeTeamId === thisTeam.id
-          const oppId = isHome ? g.awayTeamId : g.homeTeamId
-          const opp = eloMap.get(oppId)
-          const adjElo = isHome ? thisTeam.elo + HOME_ELO_ADV : thisTeam.elo
-          const oppElo = opp?.elo ?? 1500
-          const winProb = 1 / (1 + Math.pow(10, -(adjElo - oppElo) / ELO_SCALE))
-          return {
-            date: g.date,
-            opponent: opp?.abbr ?? 'OPP',
-            isHome,
-            winProb,
-          }
-        })
-
-      setScheduleGames(games)
-    }
-
-    loadSchedule()
-      .catch(() => {})
-      .finally(() => setScheduleLoading(false))
+      .finally(() => {
+        setSimLoading(false)
+        setScheduleLoading(false)
+      })
   }, [league, teamAbbr]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!config) {
@@ -336,11 +324,36 @@ export default function TeamPageClient({ league, team }: Props) {
               }))
               .sort((a, b) => a.computedGB - b.computedGB)
 
+            // Nearest-rival context: the team directly ahead of / behind this
+            // one in the division, with the games-back gap between them. A
+            // lightweight stand-in for a true H2H tiebreaker (game logs not yet
+            // fetched — see Known Issues #1).
+            const myIdx = divTeams.findIndex(r => r.team === teamAbbr)
+            const ahead = myIdx > 0 ? divTeams[myIdx - 1] : null
+            const behind = myIdx >= 0 && myIdx < divTeams.length - 1 ? divTeams[myIdx + 1] : null
+            const gap = (a: number, b: number) => Math.abs(a - b).toFixed(1)
+            const rivalParts: string[] = []
+            if (ahead) {
+              const g = gap(divTeams[myIdx].computedGB, ahead.computedGB)
+              rivalParts.push(g === '0.0' ? `Tied with ${ahead.team}` : `${g} GB behind ${ahead.team}`)
+            }
+            if (behind) {
+              const g = gap(behind.computedGB, divTeams[myIdx].computedGB)
+              rivalParts.push(g === '0.0' ? `${behind.team} level` : `${behind.team} ${g} GB back`)
+            }
+
             return (
               <div className="rounded-xl border border-surface-border bg-surface-card shadow-card p-5 mb-6">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a] mb-3">
-                  {division}
-                </p>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a]">
+                    {division}
+                  </p>
+                  {rivalParts.length > 0 && (
+                    <p className="text-[11px] text-[#8892aa]">
+                      {rivalParts.join(' · ')}
+                    </p>
+                  )}
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -523,8 +536,9 @@ export default function TeamPageClient({ league, team }: Props) {
         </>
       )}
 
-      {/* Upcoming schedule — hidden in futures mode (no games in off-season) */}
-      {!isFutures && (
+      {/* Upcoming schedule — hidden in futures mode (no games in off-season) and
+          for the CFP sim league (no weekly in-season schedule stored). */}
+      {!isFutures && !config.cfbSim && (
       <div className="rounded-xl border border-surface-border bg-surface-card p-5">
         <p className="text-[10px] font-bold uppercase tracking-widest text-[#484f6a] mb-3">
           Upcoming Schedule
@@ -532,7 +546,8 @@ export default function TeamPageClient({ league, team }: Props) {
         {scheduleLoading ? (
           <p className="text-[#484f6a] text-sm">Loading schedule…</p>
         ) : (() => {
-          // Cross-reference ESPN schedule with game_importance playoff swings
+          // Schedule comes from Supabase (upcoming_games); cross-reference the
+          // game_importance rows for each game's playoff swing.
           const gamesWithSwing = scheduleGames.slice(0, 5).map(g => {
             const opp = g.opponent.toUpperCase()
             const imp = importantGames.find(ig =>
@@ -545,7 +560,8 @@ export default function TeamPageClient({ league, team }: Props) {
             return { ...g, playoffSwing: swing }
           })
 
-          // Fallback: if ESPN fetch failed (CORS), show tracked games from Supabase sorted by date
+          // Fallback: if the schedule table is empty but we have tracked
+          // important games, list those (win prob unknown) sorted by date.
           if (gamesWithSwing.length === 0) {
             const fallback = [...importantGames]
               .sort((a, b) => a.game_date.localeCompare(b.game_date))
@@ -571,7 +587,7 @@ export default function TeamPageClient({ league, team }: Props) {
               <>
                 <ScheduleTable games={fallback} limit={5} />
                 <p className="text-[10px] text-[#484f6a] mt-3">
-                  Win probability unavailable (ESPN schedule not loaded). Showing tracked games only.
+                  Win probability unavailable — showing tracked pivotal games only.
                 </p>
               </>
             )
