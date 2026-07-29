@@ -100,7 +100,7 @@ export default function HomePage() {
           Model · Markets · Edge
         </p>
         <h1 className="font-display text-4xl sm:text-5xl font-bold tracking-tight text-[#eef0f8] mb-3 leading-tight">
-          Where Futures Betting<br className="sm:hidden" /> Markets Disagree.
+          Where Betting<br className="sm:hidden" /> Markets Disagree.
         </h1>
         <p className="text-[#8892aa] text-base max-w-xl leading-relaxed">
           50,000 season simulations daily. We compare the results to Kalshi
