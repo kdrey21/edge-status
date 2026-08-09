@@ -235,11 +235,11 @@ export async function getTopEdges(limit = 6): Promise<TopEdge[]> {
 }
 
 export async function getAllLeaguesSummary(): Promise<
-  { league: string; count: number; updated_at: string; hasSim: boolean }[]
+  { league: string; count: number; updated_at: string; hasSim: boolean; gamesPlayed: boolean }[]
 > {
   const { data, error } = await getAnonClient()
     .from('sim_results')
-    .select('league, updated_at, playoff_pct')
+    .select('league, updated_at, playoff_pct, wins, losses')
 
   if (error || !data) return []
 
@@ -257,5 +257,11 @@ export async function getAllLeaguesSummary(): Promise<
     count: data.filter(r => r.league === league).length,
     // hasSim: true when at least one team has sim results (playoff_pct not null)
     hasSim: data.some(r => r.league === league && r.playoff_pct != null),
+    // gamesPlayed: any team has actually played — distinguishes a live season
+    // from a preseason projection (e.g. NCAAF's CFP sim runs before Week 1,
+    // producing playoff odds while every team is still 0-0).
+    gamesPlayed: data.some(
+      r => r.league === league && ((r.wins ?? 0) + (r.losses ?? 0)) > 0,
+    ),
   }))
 }

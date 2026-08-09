@@ -70,7 +70,7 @@ function EdgeRow({ edge }: { edge: TopEdge }) {
 
 export default function HomePage() {
   const [summary, setSummary] = useState<
-    { league: string; count: number; updated_at: string; hasSim: boolean }[]
+    { league: string; count: number; updated_at: string; hasSim: boolean; gamesPlayed: boolean }[]
   >([])
   const [edges, setEdges] = useState<TopEdge[]>([])
   const [edgesLoading, setEdgesLoading] = useState(true)
@@ -159,10 +159,13 @@ export default function HomePage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {orderedLeagues.map(league => {
           const data = summaryMap.get(league.slug)
+          // "In Season" only once real games have been played. A league with sim
+          // data but no games yet is a preseason projection (NCAAF's CFP sim runs
+          // before Week 1) → show it as Futures, not In Season.
           const state =
             data == null || data.count === 0
               ? 'inactive'
-              : data.hasSim
+              : data.hasSim && data.gamesPlayed
                 ? 'active'
                 : 'futures'
           return (
